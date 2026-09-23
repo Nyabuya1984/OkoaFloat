@@ -1,0 +1,235 @@
+nohup: ignoring input
+2026-08-25 13:19:06,799 INFO sqlalchemy.engine.Engine SELECT DATABASE()
+INFO:sqlalchemy.engine.Engine:SELECT DATABASE()
+2026-08-25 13:19:06,799 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,800 INFO sqlalchemy.engine.Engine SELECT @@sql_mode
+INFO:sqlalchemy.engine.Engine:SELECT @@sql_mode
+2026-08-25 13:19:06,800 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,800 INFO sqlalchemy.engine.Engine SELECT @@lower_case_table_names
+INFO:sqlalchemy.engine.Engine:SELECT @@lower_case_table_names
+2026-08-25 13:19:06,800 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,801 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:19:06,801 INFO sqlalchemy.engine.Engine DROP TABLE IF EXISTS System_settings;
+INFO:sqlalchemy.engine.Engine:DROP TABLE IF EXISTS System_settings;
+2026-08-25 13:19:06,801 INFO sqlalchemy.engine.Engine [generated in 0.00009s] {}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00009s] {}
+2026-08-25 13:19:06,814 INFO sqlalchemy.engine.Engine DROP TABLE IF EXISTS system_settings;
+INFO:sqlalchemy.engine.Engine:DROP TABLE IF EXISTS system_settings;
+2026-08-25 13:19:06,814 INFO sqlalchemy.engine.Engine [generated in 0.00016s] {}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00016s] {}
+2026-08-25 13:19:06,816 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+2026-08-25 13:19:06,816 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:19:06,816 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`users`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`users`
+2026-08-25 13:19:06,816 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,824 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`counties`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`counties`
+2026-08-25 13:19:06,824 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,828 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`towns`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`towns`
+2026-08-25 13:19:06,828 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,829 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`OTPs`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`OTPs`
+2026-08-25 13:19:06,829 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,830 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`matches`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`matches`
+2026-08-25 13:19:06,830 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,831 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`messages`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`messages`
+2026-08-25 13:19:06,831 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,832 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_blocks`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_blocks`
+2026-08-25 13:19:06,832 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,833 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_locations`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_locations`
+2026-08-25 13:19:06,833 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,833 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`passport_locations`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`passport_locations`
+2026-08-25 13:19:06,834 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,834 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`discovery_settings`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`discovery_settings`
+2026-08-25 13:19:06,834 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,835 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`feature_flags`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`feature_flags`
+2026-08-25 13:19:06,835 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,836 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_passport_history`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_passport_history`
+2026-08-25 13:19:06,836 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,837 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_location_history`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_location_history`
+2026-08-25 13:19:06,837 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:06,840 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+WARNING:werkzeug:Werkzeug appears to be used in a production deployment. Consider switching to a production web server instead.
+ * Serving Flask app 'app'
+ * Debug mode: on
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.5.169:5000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug: * Restarting with stat
+2026-08-25 13:19:07,609 INFO sqlalchemy.engine.Engine SELECT DATABASE()
+INFO:sqlalchemy.engine.Engine:SELECT DATABASE()
+2026-08-25 13:19:07,609 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,612 INFO sqlalchemy.engine.Engine SELECT @@sql_mode
+INFO:sqlalchemy.engine.Engine:SELECT @@sql_mode
+2026-08-25 13:19:07,612 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,612 INFO sqlalchemy.engine.Engine SELECT @@lower_case_table_names
+INFO:sqlalchemy.engine.Engine:SELECT @@lower_case_table_names
+2026-08-25 13:19:07,612 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,613 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:19:07,613 INFO sqlalchemy.engine.Engine DROP TABLE IF EXISTS System_settings;
+INFO:sqlalchemy.engine.Engine:DROP TABLE IF EXISTS System_settings;
+2026-08-25 13:19:07,614 INFO sqlalchemy.engine.Engine [generated in 0.00015s] {}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00015s] {}
+2026-08-25 13:19:07,620 INFO sqlalchemy.engine.Engine DROP TABLE IF EXISTS system_settings;
+INFO:sqlalchemy.engine.Engine:DROP TABLE IF EXISTS system_settings;
+2026-08-25 13:19:07,621 INFO sqlalchemy.engine.Engine [generated in 0.00029s] {}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00029s] {}
+2026-08-25 13:19:07,624 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+2026-08-25 13:19:07,626 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:19:07,627 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`users`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`users`
+2026-08-25 13:19:07,627 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,629 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`counties`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`counties`
+2026-08-25 13:19:07,629 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,631 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`towns`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`towns`
+2026-08-25 13:19:07,631 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,632 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`OTPs`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`OTPs`
+2026-08-25 13:19:07,633 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,634 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`matches`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`matches`
+2026-08-25 13:19:07,634 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,635 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`messages`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`messages`
+2026-08-25 13:19:07,635 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,636 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_blocks`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_blocks`
+2026-08-25 13:19:07,636 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,638 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_locations`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_locations`
+2026-08-25 13:19:07,638 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,642 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`passport_locations`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`passport_locations`
+2026-08-25 13:19:07,642 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,645 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`discovery_settings`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`discovery_settings`
+2026-08-25 13:19:07,645 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,647 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`feature_flags`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`feature_flags`
+2026-08-25 13:19:07,647 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,649 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_passport_history`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_passport_history`
+2026-08-25 13:19:07,649 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,650 INFO sqlalchemy.engine.Engine DESCRIBE `penzi_dating_db`.`user_location_history`
+INFO:sqlalchemy.engine.Engine:DESCRIBE `penzi_dating_db`.`user_location_history`
+2026-08-25 13:19:07,650 INFO sqlalchemy.engine.Engine [raw sql] {}
+INFO:sqlalchemy.engine.Engine:[raw sql] {}
+2026-08-25 13:19:07,652 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+WARNING:werkzeug:Werkzeug appears to be used in a production deployment. Consider switching to a production web server instead.
+WARNING:werkzeug: * Debugger is active!
+INFO:werkzeug: * Debugger PIN: 140-037-125
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij0920fi HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij06602z HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "POST /socket.io/?EIO=4&transport=polling&t=ij0o08fp&sid=K10Uk2xN0sDC1wMxAAAB HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "POST /socket.io/?EIO=4&transport=polling&t=ij0o1c0d&sid=n-z-n48TYLetioZSAAAA HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij0o28py&sid=K10Uk2xN0sDC1wMxAAAB HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij0o2sxw&sid=n-z-n48TYLetioZSAAAA HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij0oou9n&sid=K10Uk2xN0sDC1wMxAAAB HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:19:07] "GET /socket.io/?EIO=4&transport=polling&t=ij0op577&sid=n-z-n48TYLetioZSAAAA HTTP/1.1" 200 -
+INFO:werkzeug:192.168.5.169 - - [25/Aug/2026 13:22:21] "[31m[1mGET /api/user/login HTTP/1.1[0m" 405 -
+/home/wycliffe/Desktop/PENZI_2.50/backend/venv/lib/python3.12/site-packages/flask_sqlalchemy/model.py:22: SAWarning: relationship 'User.received_matches' will copy column matches.target_phone to column users.phone_number, which conflicts with relationship(s): 'Match.requester' (copies matches.requester_phone to users.phone_number), 'User.sent_matches' (copies matches.requester_phone to users.phone_number). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="requester,sent_matches"' to the 'User.received_matches' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+  return cls.query_class(
+/home/wycliffe/Desktop/PENZI_2.50/backend/venv/lib/python3.12/site-packages/flask_sqlalchemy/model.py:22: SAWarning: relationship 'Match.target' will copy column matches.target_phone to column users.phone_number, which conflicts with relationship(s): 'Match.requester' (copies matches.requester_phone to users.phone_number), 'User.sent_matches' (copies matches.requester_phone to users.phone_number). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="requester,sent_matches"' to the 'Match.target' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+  return cls.query_class(
+2026-08-25 13:23:01,353 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:23:01,357 INFO sqlalchemy.engine.Engine SELECT users.user_id AS users_user_id, users.phone_number AS users_phone_number, users.password_hash AS users_password_hash, users.full_name AS users_full_name, users.age AS users_age, users.gender AS users_gender, users.county_id AS users_county_id, users.town_id AS users_town_id, users.county_name AS users_county_name, users.town_name AS users_town_name, users.latitude AS users_latitude, users.longitude AS users_longitude, users.last_location_update AS users_last_location_update, users.is_passport_active AS users_is_passport_active, users.preferred_radius AS users_preferred_radius, users.education_level AS users_education_level, users.profession AS users_profession, users.marital_status AS users_marital_status, users.religion AS users_religion, users.ethnicity AS users_ethnicity, users.self_description AS users_self_description, users.profile_picture_url AS users_profile_picture_url, users.profile_status AS users_profile_status, users.registration_stage AS users_registration_stage, users.registration_complete AS users_registration_complete, users.is_active AS users_is_active, users.deleted AS users_deleted, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.phone_number = %(phone_number_1)s 
+ LIMIT %(param_1)s
+INFO:sqlalchemy.engine.Engine:SELECT users.user_id AS users_user_id, users.phone_number AS users_phone_number, users.password_hash AS users_password_hash, users.full_name AS users_full_name, users.age AS users_age, users.gender AS users_gender, users.county_id AS users_county_id, users.town_id AS users_town_id, users.county_name AS users_county_name, users.town_name AS users_town_name, users.latitude AS users_latitude, users.longitude AS users_longitude, users.last_location_update AS users_last_location_update, users.is_passport_active AS users_is_passport_active, users.preferred_radius AS users_preferred_radius, users.education_level AS users_education_level, users.profession AS users_profession, users.marital_status AS users_marital_status, users.religion AS users_religion, users.ethnicity AS users_ethnicity, users.self_description AS users_self_description, users.profile_picture_url AS users_profile_picture_url, users.profile_status AS users_profile_status, users.registration_stage AS users_registration_stage, users.registration_complete AS users_registration_complete, users.is_active AS users_is_active, users.deleted AS users_deleted, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.phone_number = %(phone_number_1)s 
+ LIMIT %(param_1)s
+2026-08-25 13:23:01,357 INFO sqlalchemy.engine.Engine [generated in 0.00031s] {'phone_number_1': '0721143189', 'param_1': 1}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00031s] {'phone_number_1': '0721143189', 'param_1': 1}
+WARNING:app.api.user:Failed login attempt for 0721143189: Incorrect password.
+2026-08-25 13:23:01,467 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:sqlalchemy.engine.Engine:ROLLBACK
+INFO:werkzeug:192.168.5.169 - - [25/Aug/2026 13:23:01] "[31m[1mPOST /api/user/login HTTP/1.1[0m" 401 -
+2026-08-25 13:23:49,922 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2026-08-25 13:23:49,923 INFO sqlalchemy.engine.Engine SELECT users.user_id AS users_user_id, users.phone_number AS users_phone_number, users.password_hash AS users_password_hash, users.full_name AS users_full_name, users.age AS users_age, users.gender AS users_gender, users.county_id AS users_county_id, users.town_id AS users_town_id, users.county_name AS users_county_name, users.town_name AS users_town_name, users.latitude AS users_latitude, users.longitude AS users_longitude, users.last_location_update AS users_last_location_update, users.is_passport_active AS users_is_passport_active, users.preferred_radius AS users_preferred_radius, users.education_level AS users_education_level, users.profession AS users_profession, users.marital_status AS users_marital_status, users.religion AS users_religion, users.ethnicity AS users_ethnicity, users.self_description AS users_self_description, users.profile_picture_url AS users_profile_picture_url, users.profile_status AS users_profile_status, users.registration_stage AS users_registration_stage, users.registration_complete AS users_registration_complete, users.is_active AS users_is_active, users.deleted AS users_deleted, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.phone_number = %(phone_number_1)s 
+ LIMIT %(param_1)s
+INFO:sqlalchemy.engine.Engine:SELECT users.user_id AS users_user_id, users.phone_number AS users_phone_number, users.password_hash AS users_password_hash, users.full_name AS users_full_name, users.age AS users_age, users.gender AS users_gender, users.county_id AS users_county_id, users.town_id AS users_town_id, users.county_name AS users_county_name, users.town_name AS users_town_name, users.latitude AS users_latitude, users.longitude AS users_longitude, users.last_location_update AS users_last_location_update, users.is_passport_active AS users_is_passport_active, users.preferred_radius AS users_preferred_radius, users.education_level AS users_education_level, users.profession AS users_profession, users.marital_status AS users_marital_status, users.religion AS users_religion, users.ethnicity AS users_ethnicity, users.self_description AS users_self_description, users.profile_picture_url AS users_profile_picture_url, users.profile_status AS users_profile_status, users.registration_stage AS users_registration_stage, users.registration_complete AS users_registration_complete, users.is_active AS users_is_active, users.deleted AS users_deleted, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.phone_number = %(phone_number_1)s 
+ LIMIT %(param_1)s
+2026-08-25 13:23:49,923 INFO sqlalchemy.engine.Engine [cached since 48.57s ago] {'phone_number_1': '0721143189', 'param_1': 1}
+INFO:sqlalchemy.engine.Engine:[cached since 48.57s ago] {'phone_number_1': '0721143189', 'param_1': 1}
+2026-08-25 13:23:50,023 INFO sqlalchemy.engine.Engine UPDATE `OTPs` SET status=%(status)s WHERE `OTPs`.`Phone_Number` = %(Phone_Number_1)s AND `OTPs`.status = %(status_1)s
+INFO:sqlalchemy.engine.Engine:UPDATE `OTPs` SET status=%(status)s WHERE `OTPs`.`Phone_Number` = %(Phone_Number_1)s AND `OTPs`.status = %(status_1)s
+2026-08-25 13:23:50,023 INFO sqlalchemy.engine.Engine [generated in 0.00017s] {'status': 'Expired', 'Phone_Number_1': '0721143189', 'status_1': 'Active'}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00017s] {'status': 'Expired', 'Phone_Number_1': '0721143189', 'status_1': 'Active'}
+2026-08-25 13:23:50,044 INFO sqlalchemy.engine.Engine INSERT INTO `OTPs` (`Phone_Number`, `OTP`, `Expiry_time`, status) VALUES (%(Phone_Number)s, %(OTP)s, %(Expiry_time)s, %(status)s)
+INFO:sqlalchemy.engine.Engine:INSERT INTO `OTPs` (`Phone_Number`, `OTP`, `Expiry_time`, status) VALUES (%(Phone_Number)s, %(OTP)s, %(Expiry_time)s, %(status)s)
+2026-08-25 13:23:50,044 INFO sqlalchemy.engine.Engine [generated in 0.00040s] {'Phone_Number': '0721143189', 'OTP': '358787', 'Expiry_time': datetime.datetime(2026, 8, 25, 13, 26, 50, 21779), 'status': 'Active'}
+INFO:sqlalchemy.engine.Engine:[generated in 0.00040s] {'Phone_Number': '0721143189', 'OTP': '358787', 'Expiry_time': datetime.datetime(2026, 8, 25, 13, 26, 50, 21779), 'status': 'Active'}
+2026-08-25 13:23:50,056 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+INFO:app.api.user:[LOGIN OTP] Phone: 0721143189  OTP: 358787  Expires: 13:26:50
+INFO:werkzeug:192.168.5.169 - - [25/Aug/2026 13:23:50] "POST /api/user/login HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:30:21] "[35m[1mGET /socket.io/?EIO=4&transport=websocket&sid=n-z-n48TYLetioZSAAAA HTTP/1.1[0m" 500 -
+INFO:werkzeug:127.0.0.1 - - [25/Aug/2026 13:30:21] "[35m[1mGET /socket.io/?EIO=4&transport=websocket&sid=K10Uk2xN0sDC1wMxAAAB HTTP/1.1[0m" 500 -
+
+========== PENZI LOGIN OTP ==========
+Phone : 0721143189
+OTP   : 358787
+Expiry: 13:26:50
+=======================================
+

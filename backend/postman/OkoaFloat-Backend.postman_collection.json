@@ -1,0 +1,165 @@
+{
+  "info": {
+    "name": "OkoaFloat Backend API",
+    "description": "Postman collection for the OkoaFloat Flask backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "userId", "value": "1" },
+    { "key": "requestId", "value": "1" },
+    { "key": "peerId", "value": "1" },
+    { "key": "departmentId", "value": "1" },
+    { "key": "leaveTypeId", "value": "1" },
+    { "key": "reportId", "value": "1" },
+    { "key": "attachmentId", "value": "1" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        { "name": "Root", "request": { "method": "GET", "url": "{{baseUrl}}/" } },
+        { "name": "Health", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"password\": \"Admin@2026!\"\n}" },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "Phone Login",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"password\": \"Admin@2026!\"\n}" },
+            "url": "{{baseUrl}}/api/auth/phone-login"
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254712345678\",\n  \"email\": \"employee@example.com\",\n  \"password\": \"Password123!\",\n  \"employee_name\": \"Amina Otieno\",\n  \"job_position_title\": \"Employee\",\n  \"employer\": \"Okoa Float Ltd\",\n  \"department\": \"Sales and Marketing\"\n}" },
+            "url": "{{baseUrl}}/api/auth/register"
+          }
+        },
+        { "name": "Verify Registration", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254712345678\",\n  \"code\": \"000000\"\n}" }, "url": "{{baseUrl}}/api/auth/verify-registration" } },
+        { "name": "Verify OTP", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254700000001\",\n  \"code\": \"000000\"\n}" }, "url": "{{baseUrl}}/api/auth/verify-otp" } },
+        { "name": "Refresh Token", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"refresh-token\"\n}" }, "url": "{{baseUrl}}/api/auth/refresh" } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/logout" } },
+        { "name": "Request Password Reset", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\"\n}" }, "url": "{{baseUrl}}/api/auth/request-password-reset" } },
+        { "name": "Reset Password", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254700000001\",\n  \"code\": \"000000\",\n  \"password\": \"NewPassword123!\"\n}" }, "url": "{{baseUrl}}/api/auth/reset-password" } },
+        { "name": "Get My Profile", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" } },
+        { "name": "Update My Profile", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"employee_name\": \"Amina Otieno\",\n  \"city\": \"Nairobi\"\n}" }, "url": "{{baseUrl}}/api/auth/me" } },
+        { "name": "Delete My Photo", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/auth/me/photo" } }
+      ]
+    },
+    {
+      "name": "Leave",
+      "item": [
+        { "name": "Leave Types", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/types" } },
+        { "name": "Leave Balances", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/balances" } },
+        { "name": "List Leave Requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests" } },
+        { "name": "Leave Request History", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/history" } },
+        { "name": "Pending Leave Requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/pending" } },
+        { "name": "Delegations", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/delegations" } },
+        { "name": "Get Leave Request", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}" } },
+        { "name": "Create Leave Request", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"leave_type_id\": {{leaveTypeId}},\n  \"start_date\": \"2026-10-12\",\n  \"end_date\": \"2026-10-14\",\n  \"reason\": \"Personal leave\",\n  \"contact_phone\": \"+254712345678\",\n  \"contact_email\": \"amina@example.com\",\n  \"address_line1\": \"12 Kenyatta Avenue\",\n  \"city\": \"Nairobi\",\n  \"country\": \"Kenya\",\n  \"postal_code\": \"00100\"\n}" }, "url": "{{baseUrl}}/api/leave/requests" } },
+        { "name": "Cancel Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/cancel" } },
+        { "name": "Approve Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/approve" } },
+        { "name": "Reject Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/reject" } },
+        { "name": "Defer Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/defer" } },
+        { "name": "Verify Leave Complete", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/verify-complete" } },
+        { "name": "Acknowledge Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover-ack" } },
+        { "name": "Get Handover", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
+        { "name": "Create Handover", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"summary\": \"Handover summary\",\n  \"tasks\": []\n}" }, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
+        { "name": "Update Handover", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"summary\": \"Updated handover summary\"\n}" }, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
+        { "name": "Submit Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/submit" } },
+        { "name": "Download Handover PDF", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/pdf" } },
+        { "name": "Accept Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/accept" } },
+        { "name": "Decline Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/decline" } },
+        { "name": "Request Handover Changes", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/request-changes" } },
+        { "name": "Remind Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/remind" } },
+        { "name": "Get Handover Attachment", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}" } },
+        { "name": "Delete Handover Attachment", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}" } }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        { "name": "Chat Users", "request": { "method": "GET", "url": "{{baseUrl}}/users" } },
+        { "name": "Messages With Peer", "request": { "method": "GET", "url": "{{baseUrl}}/messages/{{peerId}}" } },
+        { "name": "Unread Count", "request": { "method": "GET", "url": "{{baseUrl}}/unread-count" } },
+        { "name": "Send Message", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}" }, "url": "{{baseUrl}}/messages" } },
+        { "name": "Mark Messages Read", "request": { "method": "POST", "url": "{{baseUrl}}/messages/{{peerId}}/read" } }
+      ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        { "name": "Admin Users", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/users?status=active&page=1&per_page=25" } },
+        { "name": "Admin User Summary", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/users/summary" } },
+        { "name": "Departments", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/departments" } },
+        { "name": "Create Department", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Finance\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/departments" } },
+        { "name": "Update Department", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Department\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}" } },
+        { "name": "Delete Department", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}" } },
+        { "name": "Leave Types Admin", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/leave-types" } },
+        { "name": "Workflow Settings", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/workflow-settings" } },
+        { "name": "Security Events", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/security-events" } },
+        { "name": "Audit Logs", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/audit" } },
+        { "name": "System Health Admin", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/system-health" } },
+        { "name": "Approve Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/approve" } },
+        { "name": "Deactivate Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/deactivate" } },
+        { "name": "Ban Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/ban" } },
+        { "name": "Admin User Details", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/users/{{userId}}" } }
+      ]
+    },
+    {
+      "name": "Sales",
+      "item": [
+        { "name": "List Sales Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports" } },
+        { "name": "Sales Report Template", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports/template" } },
+        { "name": "Export Sales Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports/export" } },
+        { "name": "Create Sales Report", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"agent_name\": \"Example Agent\",\n  \"date_visited\": \"2026-09-22\",\n  \"customer_type\": \"agent\",\n  \"outcome\": \"interested\",\n  \"business_location\": \"Nairobi\",\n  \"notes\": \"Follow up next week\"\n}" }, "url": "{{baseUrl}}/api/sales/reports" } },
+        { "name": "V2 Summary", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/summary?scope=mine" } },
+        { "name": "V2 Daily Submissions", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/submissions/daily?scope=mine" } },
+        { "name": "V2 Funnel", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/funnel?scope=mine" } },
+        { "name": "V2 Referrals", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/referrals?scope=mine" } },
+        { "name": "V2 Appointments", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/appointments?scope=mine" } },
+        { "name": "V2 Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/reports?scope=mine" } },
+        { "name": "V2 Team Compliance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/team?scope=team" } },
+        { "name": "V2 Team Performance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/performance/team?scope=team" } },
+        { "name": "V2 Locations", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/locations?scope=team" } },
+        { "name": "V2 Organization Compliance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/org?scope=org" } },
+        { "name": "V2 Organization Registrations", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/org?scope=org" } },
+        { "name": "V2 Document Gaps", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/document-gaps?scope=org" } },
+        { "name": "V2 Regions", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/regions?scope=org" } },
+        { "name": "V2 Top Performers", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/top-performers?scope=org" } },
+        { "name": "V2 Audit", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/audit?scope=org" } },
+        { "name": "V2 Integrity", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/integrity?scope=org" } },
+        { "name": "V2 CSV Export", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.csv?scope=org" } },
+        { "name": "V2 Excel Export", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.xlsx?scope=org" } },
+        { "name": "V2 Chase Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/chase" } },
+        { "name": "V2 Flag Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}},\n  \"reason\": \"Needs review\"\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/flag" } },
+        { "name": "V2 Verify Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/verify" } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+/* Accessibility.css */
+.accessibility-provider.high-contrast {
+  --color-primary: #FF0000;
+  --color-secondary: #00FF00;
+  --color-text: #000000;
+  --color-background: #FFFFFF;
+  --color-border: #000000;
+}
+
+.accessibility-provider.large-text {
+  --text-sm: 1rem;
+  --text-base: 1.25rem;
+  --text-lg: 1.5rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.5rem;
+}
+
+.accessibility-provider.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* ➕ Focus Indicators */
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ➕ Screen Reader Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ➕ Skip Links */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-primary);
+  color: var(--color-white);
+  padding: 8px;
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ➕ ARIA Roles */
+[role="button"] {
+  cursor: pointer;
+}
+
+[role="dialog"] {
+  position: fixed;
+  z-index: 1000;
+}
+
+[aria-hidden="true"] {
+  display: none !important;
+}

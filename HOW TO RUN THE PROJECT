@@ -1,0 +1,118 @@
+Updated Run Manual — OkoaFloat_1.0
+Here's the corrected version with your actual project path (~/Desktop/OkoaFloat_1.0), plus a couple of safety improvements.
+
+Manual — two terminals
+
+Terminal 1 — Backend
+bash
+
+cd ~/Desktop/OkoaFloat_1.0/backend
+source venv/bin/activate
+export PYTHONPATH=.
+python3 run.py
+
+
+Terminal 2 — Frontend
+bash
+
+cd ~/Desktop/OkoaFloat_1.0/frontend_user
+npm install
+npm start
+
+
+Note: If npm start fails, your frontend is likely Vite, not CRA. Try:
+
+bash
+npm run dev
+Check which one is correct:
+
+bash
+cd ~/Desktop/OkoaFloat_1.0/frontend_user
+cat package.json | grep -A 6 '"scripts"'
+"start": "react-scripts start" → use npm start
+
+"dev": "vite" → use npm run dev
+
+One command — both in a tmux session
+Install tmux first (only needed once):
+
+bash
+sudo apt install -y tmux
+Then launch both services in one shot:
+
+bash
+tmux new-session -d -s okoa -n backend \
+  'cd ~/Desktop/OkoaFloat_1.0/backend && source venv/bin/activate && export PYTHONPATH=. && python3 run.py; exec bash' \
+  \; new-window -t okoa -n frontend \
+  'cd ~/Desktop/OkoaFloat_1.0/frontend_user && npm install && npm run dev; exec bash' \
+  \; attach -t okoa
+What it does:
+
+Creates a tmux session named okoa
+
+Window 1 (backend) — activates the venv, sets PYTHONPATH, runs Flask
+
+Window 2 (frontend) — installs deps, runs the dev server
+
+Attaches you to the session so you land on the backend window
+
+Useful tmux keys once inside:
+
+Key	Action
+Ctrl+B then 0	Switch to backend window
+Ctrl+B then 1	Switch to frontend window
+Ctrl+B then n	Next window
+Ctrl+B then p	Previous window
+Ctrl+B then d	Detach (session keeps running in background)
+tmux attach -t okoa	Re-attach later
+tmux kill-session -t okoa	Stop everything
+Safer variant — skip npm install on every launch
+npm install on every startup is slow. If you already ran it once, use this instead:
+
+bash
+tmux new-session -d -s okoa -n backend \
+  'cd ~/Desktop/OkoaFloat_1.0/backend && source venv/bin/activate && export PYTHONPATH=. && python3 run.py; exec bash' \
+  \; new-window -t okoa -n frontend \
+  'cd ~/Desktop/OkoaFloat_1.0/frontend_user && npm run dev; exec bash' \
+  \; attach -t okoa
+Only run npm install manually when package.json changes.
+
+Quick preflight (before launching)
+Run these once to confirm everything is ready:
+
+bash
+# Backend checks
+cd ~/Desktop/OkoaFloat_1.0/backend
+test -d venv && echo "venv: OK" || echo "venv: MISSING — run: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+test -f run.py && echo "run.py: OK" || echo "run.py: MISSING"
+test -f .env && echo ".env: OK" || echo ".env: MISSING"
+
+# Frontend checks
+cd ~/Desktop/OkoaFloat_1.0/frontend_user
+test -d node_modules && echo "node_modules: OK" || echo "node_modules: MISSING — run: npm install"
+test -f package.json && echo "package.json: OK" || echo "package.json: MISSING"
+If ports are already in use
+If a previous run left Flask or the dev server hanging:
+
+bash
+# Kill anything on Flask's default port (5000)
+fuser -k 5000/tcp 2>/dev/null
+
+# Kill anything on the frontend port (3000 for CRA, 5173 for Vite)
+fuser -k 3000/tcp 2>/dev/null
+fuser -k 5173/tcp 2>/dev/null
+
+# Then relaunch tmux
+tmux kill-session -t okoa 2>/dev/null
+Save this as a shell alias (optional)
+Add to ~/.bashrc:
+
+bash
+alias okoa='tmux new-session -d -s okoa -n backend "cd ~/Desktop/OkoaFloat_1.0/backend && source venv/bin/activate && export PYTHONPATH=. && python3 run.py; exec bash" \; new-window -t okoa -n frontend "cd ~/Desktop/OkoaFloat_1.0/frontend_user && npm run dev; exec bash" \; attach -t okoa'
+alias okoa-kill='tmux kill-session -t okoa 2>/dev/null'
+Reload and use:
+
+bash
+source ~/.bashrc
+okoa        # start both
+okoa-kill   # stop both

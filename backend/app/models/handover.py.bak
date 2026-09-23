@@ -1,0 +1,223 @@
+from datetime import datetime
+
+from app.extensions import db
+
+
+class HandoverReport(db.Model):
+    __tablename__ = "handover_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    leave_request_id = db.Column(
+        db.Integer,
+        db.ForeignKey("leave_requests.id"),
+        unique=True,
+        nullable=False,
+    )
+    version = db.Column(db.String(16), nullable=False, default="v1")
+    summary = db.Column(db.Text, nullable=False)
+    submitted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    leave_request = db.relationship(
+        "LeaveRequest",
+        backref=db.backref(
+            "handover_report",
+            uselist=False,
+            cascade="all, delete-orphan",
+        ),
+    )
+    tasks = db.relationship(
+        "HandoverTask",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    recurring = db.relationship(
+        "HandoverRecurring",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    escalations = db.relationship(
+        "HandoverEscalation",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    access_entries = db.relationship(
+        "HandoverAccess",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    risks = db.relationship(
+        "HandoverRisk",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    attachments = db.relationship(
+        "HandoverAttachment",
+        back_populates="handover_report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class HandoverTask(db.Model):
+    __tablename__ = "handover_tasks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_name = db.Column(db.String(200), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    status = db.Column(
+        db.Enum(
+            "not_started",
+            "in_progress",
+            "blocked",
+            "awaiting_review",
+            "almost_done",
+            "done",
+            name="handover_task_status",
+        ),
+        nullable=True,
+    )
+    percent_complete = db.Column(db.SmallInteger, nullable=True)
+    next_action = db.Column(db.Text, nullable=False)
+    deadline = db.Column(db.Date, nullable=False)
+    priority = db.Column(
+        db.Enum("low", "medium", "high", "critical", name="handover_task_priority"),
+        nullable=True,
+    )
+    stakeholder = db.Column(db.String(200), nullable=True)
+    location = db.Column(db.String(500), nullable=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+    handover_report = db.relationship("HandoverReport", back_populates="tasks")
+
+
+class HandoverRecurring(db.Model):
+    __tablename__ = "handover_recurring"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task = db.Column(db.String(200), nullable=True)
+    cadence = db.Column(
+        db.Enum("daily", "weekly", "monthly", "quarterly", name="handover_cadence"),
+        nullable=True,
+    )
+    where_link = db.Column(db.String(500), nullable=True)
+    definition_of_done = db.Column(db.Text, nullable=False)
+
+    handover_report = db.relationship("HandoverReport", back_populates="recurring")
+
+
+class HandoverEscalation(db.Model):
+    __tablename__ = "handover_escalations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    issue_type = db.Column(db.String(200), nullable=True)
+    contact_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    contact_name = db.Column(db.String(120), nullable=True)
+    contact_role = db.Column(db.String(120), nullable=True)
+    contact_phone = db.Column(db.String(30), nullable=True)
+    contact_email = db.Column(db.String(120), nullable=True)
+    when_to_escalate = db.Column(db.Text, nullable=False)
+
+    handover_report = db.relationship("HandoverReport", back_populates="escalations")
+    contact_user = db.relationship("User", foreign_keys=[contact_user_id])
+
+
+class HandoverAccess(db.Model):
+    __tablename__ = "handover_access"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    system_name = db.Column(db.String(120), nullable=True)
+    access_level = db.Column(
+        db.Enum("read", "write", "admin", name="handover_access_level"),
+        nullable=True,
+    )
+    how_to_request = db.Column(db.Text, nullable=False)
+    ticket_raised = db.Column(db.Boolean, default=False, nullable=False)
+    approved_by = db.Column(db.String(120), nullable=True)
+
+    handover_report = db.relationship("HandoverReport", back_populates="access_entries")
+
+
+class HandoverRisk(db.Model):
+    __tablename__ = "handover_risks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    risk = db.Column(db.Text, nullable=True)
+    impact = db.Column(db.Text, nullable=True)
+    mitigation = db.Column(db.Text, nullable=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    handover_report = db.relationship("HandoverReport", back_populates="risks")
+    owner = db.relationship("User", foreign_keys=[owner_id])
+
+
+class HandoverAttachment(db.Model):
+    __tablename__ = "handover_attachments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    handover_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("handover_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_url = db.Column(db.String(500), nullable=True)
+    mime_type = db.Column(db.String(80), nullable=True)
+    size_bytes = db.Column(db.Integer, nullable=True)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    handover_report = db.relationship("HandoverReport", back_populates="attachments")
+    uploader = db.relationship("User", foreign_keys=[uploaded_by])
+
+
+class HandoverAcceptance(db.Model):
+    __tablename__ = "handover_acceptances"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey("leave_requests.id"), nullable=False)
+    delegate_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    acknowledgment_text = db.Column(db.Text, nullable=True)
+    signature_name = db.Column(db.String(120), nullable=True)
+    signature_date = db.Column(db.Date, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    request = db.relationship("LeaveRequest", foreign_keys=[request_id])
+    delegate = db.relationship("User", foreign_keys=[delegate_id])

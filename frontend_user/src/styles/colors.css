@@ -1,0 +1,23 @@
+/* Okoa Float Leave design tokens. */
+:root {
+  --color-primary: #ed6a16;
+  --color-primary-dark: #cc4e10;
+  --color-primary-light: #f29a5f;
+  --color-primary-gradient: linear-gradient(135deg, #ed6a16 0%, #cc4e10 100%);
+  --color-secondary: #687181;
+  --color-secondary-dark: #4f5968;
+  --color-secondary-light: #aab1bb;
+  --color-white: #FFFFFF;
+  --color-light-gray: #F5F7FA;
+  --color-gray: #E2E8F0;
+  --color-medium-gray: #A0AEC0;
+  --color-dark-gray: #4A5568;
+  --color-black: #1A202C;
+  --color-success: #48BB78;
+  --color-warning: #ED8936;
+  --color-error: #FC8181;
+  --color-info: #63B3ED;
+  --color-status-online: #48BB78;
+  --color-status-offline: #A0AEC0;
+  --color-status-active: #ed6a16;
+}

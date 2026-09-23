@@ -1,0 +1,3 @@
+import React from 'react';
+
+export const ReportTable = ({ rows = [], onRowClick }) => { if (!rows.length) return <div className="sales-v2-empty">No sales visits match these filters.</div>; return <div className="sales-v2-table-wrap"><table className="sales-v2-table"><thead><tr><th>Date</th><th>Agent</th><th>Location</th><th>Outcome</th></tr></thead><tbody>{rows.slice(0, 25).map((row, index) => <tr key={row.id || index} onClick={() => onRowClick?.([row])} tabIndex="0" onKeyDown={(event) => event.key === 'Enter' && onRowClick?.([row])}><td>{row.date_visited || row.date || '-'}</td><td>{row.agent_name || row.employee_name || '-'}</td><td>{row.business_location || row.location || '-'}</td><td>{row.outcome || row.status || '-'}</td></tr>)}</tbody></table></div>; };

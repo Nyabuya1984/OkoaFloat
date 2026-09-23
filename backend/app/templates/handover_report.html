@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Handover Report {{ leave_request.id }}</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: Arial, sans-serif; color: #172033; font-size: 10pt; }
+    h1 { color: #0f766e; margin-bottom: 4px; }
+    h2 { color: #0f766e; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-top: 18px; }
+    .meta { color: #475569; margin-bottom: 14px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+    th, td { border: 1px solid #cbd5e1; padding: 5px; vertical-align: top; }
+    th { background: #f1f5f9; text-align: left; }
+    .statement { border-left: 4px solid #0f766e; padding: 8px 12px; background: #f0fdfa; }
+    .signatures { display: flex; gap: 30px; margin-top: 20px; }
+    .signature { width: 50%; border-top: 1px solid #64748b; padding-top: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Work Handover Report</h1>
+  <div class="meta">
+    Leave request #{{ leave_request.id }} · Version {{ report.version }}<br>
+    Requester: {{ leave_request.user.full_name }} ·
+    Leave: {{ leave_request.start_date }} to {{ leave_request.end_date }} ·
+    Working days: {{ leave_request.days_requested }}
+  </div>
+
+  <h2>Delegate</h2>
+  <p>{{ leave_request.handover_name or "Not assigned" }}</p>
+  <div class="statement">{{ acknowledgment_text }}</div>
+
+  <h2>Summary</h2>
+  <p>{{ report.summary }}</p>
+
+  <h2>Active Tasks</h2>
+  <table>
+    <tr><th>Task</th><th>Status</th><th>Progress</th><th>Next action</th><th>Deadline</th><th>Priority</th></tr>
+    {% for task in report.tasks %}
+    <tr>
+      <td>{{ task.task_name or "" }}<br>{{ task.description or "" }}</td>
+      <td>{{ task.status or "" }}</td><td>{{ task.percent_complete or 0 }}%</td>
+      <td>{{ task.next_action }}</td><td>{{ task.deadline }}</td><td>{{ task.priority or "" }}</td>
+    </tr>
+    {% else %}<tr><td colspan="6">No tasks recorded.</td></tr>{% endfor %}
+  </table>
+
+  <h2>Recurring Responsibilities</h2>
+  <table>
+    <tr><th>Task</th><th>Cadence</th><th>Where</th><th>Definition of done</th></tr>
+    {% for item in report.recurring %}
+    <tr><td>{{ item.task or "" }}</td><td>{{ item.cadence or "" }}</td><td>{{ item.where_link or "" }}</td><td>{{ item.definition_of_done }}</td></tr>
+    {% else %}<tr><td colspan="4">None recorded.</td></tr>{% endfor %}
+  </table>
+
+  <h2>Escalation Matrix</h2>
+  <table>
+    <tr><th>Issue</th><th>Contact</th><th>Phone</th><th>Email</th><th>When to escalate</th></tr>
+    {% for item in report.escalations %}
+    <tr><td>{{ item.issue_type or "" }}</td><td>{{ item.contact_name or item.contact_role or "" }}</td><td>{{ item.contact_phone or "" }}</td><td>{{ item.contact_email or "" }}</td><td>{{ item.when_to_escalate }}</td></tr>
+    {% else %}<tr><td colspan="5">None recorded.</td></tr>{% endfor %}
+  </table>
+
+  <h2>Access Needed</h2>
+  <table>
+    <tr><th>System</th><th>Access level</th><th>How to request</th><th>Ticket raised</th><th>Approved by</th></tr>
+    {% for item in report.access_entries %}
+    <tr><td>{{ item.system_name or "" }}</td><td>{{ item.access_level or "" }}</td><td>{{ item.how_to_request }}</td><td>{{ "Yes" if item.ticket_raised else "No" }}</td><td>{{ item.approved_by or "" }}</td></tr>
+    {% else %}<tr><td colspan="5">None recorded.</td></tr>{% endfor %}
+  </table>
+
+  <h2>Risks</h2>
+  <table>
+    <tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr>
+    {% for item in report.risks %}
+    <tr><td>{{ item.risk or "" }}</td><td>{{ item.impact or "" }}</td><td>{{ item.mitigation or "" }}</td></tr>
+    {% else %}<tr><td colspan="3">None recorded.</td></tr>{% endfor %}
+  </table>
+
+  <div class="signatures">
+    <div class="signature">Delegate: {{ leave_request.handover_name or "________________" }}</div>
+    <div class="signature">Date: {{ leave_request.handover_agreed_at.date() if leave_request.handover_agreed_at else "________________" }}</div>
+  </div>
+</body>
+</html>

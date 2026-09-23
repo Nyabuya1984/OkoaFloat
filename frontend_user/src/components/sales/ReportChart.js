@@ -1,0 +1,3 @@
+import React from 'react';
+
+export const ReportChart = ({ data = [], onSelect }) => { const max = Math.max(1, ...data.map((item) => Number(item.value || 0))); if (!data.length) return <div className="sales-v2-empty">No chart data available.</div>; return <div className="sales-v2-chart" role="img" aria-label="Sales report chart">{data.map((item) => <button className="sales-v2-bar-row" type="button" key={item.label} onClick={() => onSelect?.(item)}><span>{item.label}</span><span className="sales-v2-bar"><i style={{ width: `${Math.round((Number(item.value || 0) / max) * 100)}%` }} /></span><strong>{item.value}</strong></button>)}</div>; };
