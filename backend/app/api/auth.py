@@ -17,8 +17,9 @@ from sqlalchemy import or_, text
 
 from app.extensions import db
 from app.models import AuditLog, AuthSession, Department, LeavePolicy, LeaveType, OtpChallenge, User
+from app.utils.email_delivery import EmailDeliveryConfigurationError, send_otp_email
 from app.utils.phone import normalize_ke_phone
-from app.utils.rbac import is_super_admin, normalize_role
+from app.utils.rbac import is_super_admin, is_system_admin, normalize_role
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -40,12 +41,47 @@ def _hash_otp(code):
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+def _normalize_email(value):
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _account_for_email(email):
+    matches = User.query.filter(
+        (db.func.lower(User.email) == email)
+        | (db.func.lower(User.personal_email) == email)
+    ).limit(2).all()
+    return matches[0] if len(matches) == 1 else None
+
+
+def _valid_email(value):
+    # Accept normal public domains, custom domains, and valid single-label
+    # domains without restricting users to a provider allowlist.
+    if not value or len(value) > 255 or not re.fullmatch(r"[^@\s]+@[^@\s]+", value):
+        return False
+    local, domain = value.rsplit("@", 1)
+    return (
+        len(local) <= 64
+        and not local.startswith(".")
+        and not local.endswith(".")
+        and ".." not in local
+        and not domain.startswith(".")
+        and not domain.endswith(".")
+        and ".." not in domain
+    )
+
+
 def _create_otp(user, purpose):
     code = f"{secrets.randbelow(1_000_000):06d}"
+    personal_email = _normalize_email(user.personal_email or user.email)
+    store_plaintext = bool(current_app.config.get("STORE_PLAINTEXT_OTP")) and (
+        current_app.debug or current_app.testing
+    )
     challenge = OtpChallenge(
-        challenge_id=secrets.token_urlsafe(32),
         user_id=user.id,
         phone_number=user.phone_number,
+        email_address=_normalize_email(user.email),
+        personal_email_address=personal_email,
+        plaintext_code=code if store_plaintext else None,
         purpose=purpose,
         code_hash=_hash_otp(code),
         status="active",
@@ -53,46 +89,83 @@ def _create_otp(user, purpose):
     )
     db.session.add(challenge)
     db.session.flush()
-    if current_app.config.get("STORE_PLAINTEXT_OTP"):
-        message = (
+    if store_plaintext:
+        print(
             "\n"
-            "================ DEVELOPMENT OTP ================\n"
-            f"  PURPOSE:   {purpose.upper()}\n"
-            f"  PHONE:     {user.phone_number}\n"
-            f"  OTP CODE:  {code}\n"
-            f"  EXPIRES:   {challenge.expires_at.isoformat()} UTC\n"
-            "=================================================="
+            "========================================\n"
+            "  OKOA FLOAT VERIFICATION CODE\n"
+            f"  PURPOSE: {purpose.replace('_', ' ').upper()}\n"
+            f"  PHONE:   {challenge.phone_number}\n"
+            f"  OTP:     {code}\n"
+            "========================================",
+            flush=True,
         )
-        current_app.logger.warning("%s", message)
-    else:
-        current_app.logger.info(
-            "OTP generated: purpose=%s expires=%s UTC",
-            purpose.upper(),
-            challenge.expires_at.isoformat(),
+    email_errors = []
+    recipients = dict.fromkeys((challenge.email_address, personal_email))
+    for recipient in recipients:
+        try:
+            send_otp_email(
+                recipient,
+                purpose,
+                challenge.phone_number,
+                code,
+                challenge.expires_at,
+            )
+        except (EmailDeliveryConfigurationError, RuntimeError) as exc:
+            email_errors.append(exc)
+    if email_errors and not store_plaintext:
+        raise email_errors[0]
+    email_error = "; ".join(str(error) for error in email_errors) or None
+    if email_error:
+        current_app.logger.error(
+            "OTP email delivery failed for one or more addresses during local testing; "
+            "the code remains available in the development console and OTP table: %s",
+            email_error,
         )
-    return challenge
+    return challenge, email_error
 
 
-def _verify_otp(challenge_id, phone_number, code, purpose):
-    challenge = OtpChallenge.query.filter_by(
-        challenge_id=challenge_id,
+def _verify_otp(phone_number, code, purpose, email=None):
+    challenges = OtpChallenge.query.filter_by(
         phone_number=phone_number,
         purpose=purpose,
+        status="active",
         verified_at=None,
-    ).first()
-    if not challenge:
+    ).order_by(OtpChallenge.created_at.desc()).all()
+    now = datetime.utcnow()
+    usable = []
+    for challenge in challenges:
+        if challenge.expires_at <= now:
+            challenge.status = "expired"
+        elif challenge.attempts < 5:
+            usable.append(challenge)
+    if not usable:
+        if challenges and all(challenge.expires_at <= now for challenge in challenges):
+            return None, "OTP has expired"
+        if challenges:
+            return None, "Too many OTP attempts"
         return None, "Invalid OTP challenge"
-    if challenge.expires_at < datetime.utcnow():
-        challenge.status = "expired"
-        return None, "OTP has expired"
-    if challenge.attempts >= 5:
-        return None, "Too many OTP attempts"
-    challenge.attempts += 1
-    if not secrets.compare_digest(challenge.code_hash, _hash_otp(code or "")):
-        return None, "Invalid OTP"
-    challenge.verified_at = datetime.utcnow()
-    challenge.status = "verified"
-    return challenge, None
+
+    code_hash = _hash_otp(code or "")
+    for challenge in usable:
+        if secrets.compare_digest(challenge.code_hash, code_hash):
+            submitted_email = _normalize_email(email)
+            if email is not None and not any(
+                secrets.compare_digest(registered_email, submitted_email)
+                for registered_email in (
+                    challenge.email_address,
+                    challenge.personal_email_address or challenge.email_address,
+                )
+            ):
+                return None, "Email does not match the registered account"
+            challenge.attempts += 1
+            challenge.verified_at = now
+            challenge.status = "verified"
+            return challenge, None
+
+    for challenge in usable:
+        challenge.attempts += 1
+    return None, "Invalid OTP"
 
 
 def _resend_allowed(user, purpose):
@@ -191,15 +264,12 @@ def _can_create_user(actor, target_role, target_department_name=None):
 def _phone_login(payload):
     phone_number = normalize_ke_phone(payload.get("phone_number"))
     password = payload.get("password")
-    user = User.query.filter_by(phone_number=phone_number).first() if phone_number else None
+    if not phone_number or not password:
+        return _error("phone_number and password are required", "VALIDATION_ERROR", 422)
+    user = User.query.filter_by(phone_number=phone_number).first()
     password_matches = bool(user and password and user.check_password(password))
     if not user or not password_matches:
-        current_app.logger.warning(
-            "Phone login rejected: normalized_phone=%s user_found=%s password_matches=%s",
-            phone_number,
-            bool(user),
-            password_matches,
-        )
+        current_app.logger.warning("Phone login rejected: normalized_phone=%s", phone_number)
         _record_security_event(
             "login_failed",
             "Rejected phone login attempt",
@@ -220,34 +290,33 @@ def _phone_login(payload):
             429,
         )
     try:
-        challenge = _create_otp(user, "login")
+        challenge, email_error = _create_otp(user, "login")
         db.session.commit()
-    except Exception as error:
+    except EmailDeliveryConfigurationError as exc:
         db.session.rollback()
-        current_app.logger.exception("Database failure while creating login OTP")
-        message = "Database unavailable. Start MySQL and verify migrations."
-        if current_app.debug:
-            message = f"{message} ({error})"
-        return _error(message, "DATABASE_UNAVAILABLE", 503)
+        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
+    except RuntimeError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Unable to create or deliver login OTP")
+        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
     return jsonify({
         "verification_required": True,
-        "challenge_id": challenge.challenge_id,
+        "email_sent": email_error is None,
         "message": (
-            "OTP generated. Check the configured delivery channel."
-            if not current_app.config.get("STORE_PLAINTEXT_OTP")
-            else "OTP generated. Check the development server console."
+            "A verification code was sent to your registered work and personal email addresses."
+            if email_error is None
+            else "The OTP is stored in the development database and shown in the server console. "
+            "Email delivery failed; configure SMTP before relying on email OTPs."
         ),
     })
 
 
 @auth_bp.post("/login")
 def login():
-    payload = request.get_json(silent=True) or {}
-    phone_number = normalize_ke_phone(payload.get("phone_number"))
-    password = payload.get("password")
-    if not phone_number or not password:
-        return _error("phone_number and password are required", "VALIDATION_ERROR", 422)
-    return _phone_login(payload)
+    return _phone_login(request.get_json(silent=True) or {})
 
 
 @auth_bp.post("/phone-login")
@@ -259,16 +328,21 @@ def phone_login():
 def register():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    raw_email = payload.get("email")
-    email = raw_email.strip().lower() if isinstance(raw_email, str) else ""
+    email = _normalize_email(payload.get("email"))
+    personal_email = _normalize_email(payload.get("personal_email"))
     required = ("email", "password")
     field_errors = _registration_fields(payload)
     if not phone_number:
         field_errors["phone_number"] = "Enter a valid phone number."
     missing = [field for field in required if not payload.get(field)]
-    email = email.strip().lower()
-    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+    if not email:
+        field_errors["email"] = "This field is required."
+    elif not _valid_email(email):
         field_errors["email"] = "Enter a valid email address."
+    if not personal_email:
+        field_errors["personal_email"] = "This field is required."
+    elif not _valid_email(personal_email):
+        field_errors["personal_email"] = "Enter a valid personal email address."
     if missing:
         field_errors.update({field: "This field is required." for field in missing})
     if field_errors:
@@ -286,6 +360,15 @@ def register():
 
     if existing_by_email and existing_by_phone and existing_by_email.id != existing_by_phone.id:
         return _error("Email and phone number belong to different accounts", status=409)
+    email_addresses = (email, personal_email)
+    address_conflicts = User.query.filter(
+        (db.func.lower(User.email).in_(email_addresses))
+        | (db.func.lower(User.personal_email).in_(email_addresses))
+    )
+    if existing_user:
+        address_conflicts = address_conflicts.filter(User.id != existing_user.id)
+    if address_conflicts.first():
+        return _error("An email address is already assigned to another account", status=409)
 
     if existing_user and (
         existing_user.approved_at is not None
@@ -320,26 +403,38 @@ def register():
         user.job_position_title = payload["job_position_title"].strip()
         user.employer = payload["employer"].strip()
         user.email = email
+        user.personal_email = personal_email
         user.phone_number = phone_number
         user.department = department.name
         user.department_id = department.id
         user.contact_phone = phone_number
-        user.contact_email = email
+        user.contact_email = personal_email
         user.account_status = "pending"
         user.is_active = True
         user.set_password(payload["password"])
         db.session.add(user)
         db.session.flush()
-        challenge = _create_otp(user, "registration")
+        challenge, email_error = _create_otp(user, "registration")
         db.session.commit()
+    except EmailDeliveryConfigurationError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
+    except RuntimeError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Database failure while creating employee registration")
-        return _error("Database unavailable. Start MySQL and try again.", "DATABASE_UNAVAILABLE", 503)
+        current_app.logger.exception("Unable to create or deliver registration OTP")
+        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
     return jsonify({
         "verification_required": True,
-        "challenge_id": challenge.challenge_id,
-        "message": "A verification code was generated for your phone",
+        "email_sent": email_error is None,
+        "message": (
+            "A verification code was sent to your registered work and personal email addresses."
+            if email_error is None
+            else "The OTP is stored in the development database and shown in the server console. "
+            "Email delivery failed; configure SMTP before relying on email OTPs."
+        ),
     }), 201
 
 
@@ -347,16 +442,14 @@ def register():
 def verify_registration():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    if not phone_number or not payload.get("challenge_id") or not payload.get("otp"):
-        return _error("phone_number, challenge_id, and otp are required")
+    email = _normalize_email(payload.get("email"))
+    if not phone_number or not payload.get("otp") or not email:
+        return _error("phone_number, email, and otp are required")
     try:
-        challenge, error = _verify_otp(
-            payload["challenge_id"], phone_number, payload["otp"], "registration"
-        )
+        challenge, error = _verify_otp(phone_number, payload["otp"], "registration", email)
         if error:
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
-        user = db.session.get(User, challenge.user_id)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -371,17 +464,16 @@ def verify_registration():
 def verify_otp():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    if not phone_number or not payload.get("challenge_id") or not payload.get("otp"):
-        return _error("phone_number, challenge_id, and otp are required")
+    email = _normalize_email(payload["email"]) if "email" in payload else None
+    if not phone_number or not payload.get("otp"):
+        return _error("phone_number and otp are required")
     try:
-        challenge, error = _verify_otp(
-            payload["challenge_id"], phone_number, payload["otp"], "login"
-        )
+        challenge, error = _verify_otp(phone_number, payload["otp"], "login", email)
         if error:
             _record_security_event(
                 "otp_failed",
                 "OTP verification failed",
-                {"phone_number": phone_number, "challenge_id": payload.get("challenge_id"), "reason": error},
+                {"phone_number": phone_number, "reason": error},
             )
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
@@ -441,7 +533,7 @@ def admin_departments():
 @jwt_required()
 def create_department():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can create departments", "FORBIDDEN", 403)
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
@@ -460,7 +552,7 @@ def create_department():
 @jwt_required()
 def update_department(department_id):
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can update departments", "FORBIDDEN", 403)
     dept = db.session.get(Department, department_id)
     if not dept:
@@ -485,7 +577,7 @@ def update_department(department_id):
 @jwt_required()
 def delete_department(department_id):
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can delete departments", "FORBIDDEN", 403)
     dept = db.session.get(Department, department_id)
     if not dept:
@@ -501,7 +593,7 @@ def delete_department(department_id):
 @jwt_required()
 def admin_leave_types():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can manage leave types", "FORBIDDEN", 403)
     leave_types = LeaveType.query.order_by(LeaveType.name.asc()).all()
     return jsonify({
@@ -521,7 +613,7 @@ def admin_leave_types():
 @jwt_required()
 def create_leave_type():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can create leave types", "FORBIDDEN", 403)
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
@@ -553,7 +645,7 @@ def create_leave_type():
 @jwt_required()
 def update_leave_type(leave_type_id):
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can update leave types", "FORBIDDEN", 403)
     leave_type = db.session.get(LeaveType, leave_type_id)
     if not leave_type:
@@ -582,7 +674,7 @@ def update_leave_type(leave_type_id):
 @jwt_required()
 def delete_leave_type(leave_type_id):
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can delete leave types", "FORBIDDEN", 403)
     leave_type = db.session.get(LeaveType, leave_type_id)
     if not leave_type:
@@ -596,7 +688,7 @@ def delete_leave_type(leave_type_id):
 @jwt_required()
 def admin_workflow_settings():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can review workflow settings", "FORBIDDEN", 403)
     default_settings = {
         "handover_threshold_days": 2,
@@ -613,7 +705,7 @@ def admin_workflow_settings():
 @jwt_required()
 def update_admin_workflow_settings():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can update workflow settings", "FORBIDDEN", 403)
     payload = request.get_json(silent=True) or {}
     settings = {
@@ -634,10 +726,10 @@ def update_admin_workflow_settings():
 @jwt_required()
 def admin_security_events():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can view security events", "FORBIDDEN", 403)
     events = AuditLog.query.filter(
-        AuditLog.action.in_(["login_failed", "otp_failed", "password_reset_failed", "rate_limit_hit"])
+        AuditLog.action.in_(["login_failed", "rate_limit_hit"])
     ).order_by(AuditLog.timestamp.desc()).limit(25).all()
     payload = []
     for event in events:
@@ -660,7 +752,10 @@ def admin_users():
     actor = db.session.get(User, int(get_jwt_identity()))
     if not _admin_access(actor):
         return _error("Only HR admin and super admin accounts can view system users", "FORBIDDEN", 403)
+    actor_role = normalize_role(getattr(actor, "role", None))
     query = User.query if is_super_admin(actor) else User.query.filter(User.is_superuser.is_(False), User.role != "SUPER_ADMIN")
+    if actor_role == "MANAGER":
+        query = query.filter(User.department_id == actor.department_id)
     users = query.order_by(User.created_at.desc()).all()
     return jsonify({"data": [user.to_dict() for user in users], "error": None})
 
@@ -677,16 +772,25 @@ def create_admin_user():
         return _error(reason or "You do not have permission to create that user", "FORBIDDEN", 403)
 
     full_name = (payload.get("full_name") or "").strip()
-    email = (payload.get("email") or "").strip().lower()
+    email = _normalize_email(payload.get("email"))
+    personal_email = _normalize_email(payload.get("personal_email"))
     phone_number = normalize_ke_phone(payload.get("phone_number") or payload.get("contact_phone"))
     contact_phone = normalize_ke_phone(payload.get("contact_phone") or phone_number)
-    contact_email = (payload.get("contact_email") or email).strip().lower()
+    contact_email = personal_email
     password = payload.get("password") or ""
     if role not in {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}:
         return _error("Invalid role selected", "VALIDATION_ERROR", 422)
-    if not full_name or not email or not phone_number or len(password) < 8:
-        return _error("full_name, email, phone_number, and a password of at least 8 characters are required", "VALIDATION_ERROR", 422)
-    if User.query.filter((User.email == email) | (User.phone_number == phone_number)).first():
+    if not full_name or not email or not personal_email or not phone_number or len(password) < 8:
+        return _error("full_name, email, personal_email, phone_number, and a password of at least 8 characters are required", "VALIDATION_ERROR", 422)
+    if not _valid_email(email):
+        return _error("Enter a valid email address", "VALIDATION_ERROR", 422)
+    if not _valid_email(personal_email):
+        return _error("Enter a valid personal email address", "VALIDATION_ERROR", 422)
+    if User.query.filter(
+        (db.func.lower(User.email).in_((email, personal_email)))
+        | (db.func.lower(User.personal_email).in_((email, personal_email)))
+        | (User.phone_number == phone_number)
+    ).first():
         return _error("A user with that email or phone number already exists", "CONFLICT", 409)
 
     hire_date = None
@@ -704,6 +808,7 @@ def create_admin_user():
         job_position_title=payload.get("job_position_title") or "Staff",
         employer=payload.get("employer") or "Okoa Float Ltd",
         email=email,
+        personal_email=personal_email,
         phone_number=phone_number,
         contact_phone=contact_phone,
         contact_email=contact_email,
@@ -767,6 +872,7 @@ def update_admin_user(user_id):
         "job_position_title",
         "employer",
         "email",
+        "personal_email",
         "phone_number",
         "contact_phone",
         "contact_email",
@@ -782,8 +888,12 @@ def update_admin_user(user_id):
         if field not in payload:
             continue
         value = payload[field]
-        if field in {"email", "contact_email"}:
-            value = str(value).strip().lower()
+        if field in {"email", "personal_email", "contact_email"}:
+            value = _normalize_email(value)
+            if field == "email" and not _valid_email(value):
+                return _error("Enter a valid email address", "VALIDATION_ERROR", 422)
+            if field in {"personal_email", "contact_email"} and not _valid_email(value):
+                return _error("Enter a valid email address", "VALIDATION_ERROR", 422)
         elif field in {"phone_number", "contact_phone"}:
             value = normalize_ke_phone(value)
         elif field == "hire_date":
@@ -809,15 +919,28 @@ def update_admin_user(user_id):
             target.employee_name = value
             continue
         if field == "email":
+            duplicate = User.query.filter(
+                User.id != target.id,
+                (db.func.lower(User.email) == value)
+                | (db.func.lower(User.personal_email) == value),
+            ).first()
+            if duplicate:
+                return _error("A user with that email already exists", "CONFLICT", 409)
             target.email = value
-            if not target.contact_email:
-                target.contact_email = value
+            continue
+        if field in {"personal_email", "contact_email"}:
+            duplicate = User.query.filter(
+                User.id != target.id,
+                (db.func.lower(User.email) == value)
+                | (db.func.lower(User.personal_email) == value),
+            ).first()
+            if duplicate:
+                return _error("A user with that personal email already exists", "CONFLICT", 409)
+            target.personal_email = value
+            target.contact_email = value
             continue
         if field == "contact_phone":
             target.contact_phone = value
-            continue
-        if field == "contact_email":
-            target.contact_email = value
             continue
         if field == "phone_number":
             target.phone_number = value
@@ -854,13 +977,42 @@ def update_admin_user_status(user_id):
     if target.id == actor.id:
         return _error("You cannot change your own account status", "CONFLICT", 409)
     status = (request.get_json(silent=True) or {}).get("status", "").strip().lower()
-    if status not in {"active", "deactivated", "archived"}:
-        return _error("status must be active, deactivated, or archived", "VALIDATION_ERROR", 422)
-    target.is_active = status == "active"
-    target.is_archived = status == "archived"
-    target.account_status = "approved" if status == "active" else "deactivated"
-    target.deactivated_at = None if status == "active" else datetime.utcnow()
-    target.deactivated_by = None if status == "active" else actor.id
+    if status not in {"pending", "active", "deactivated", "archived"}:
+        return _error("status must be pending, active, deactivated, or archived", "VALIDATION_ERROR", 422)
+    if status == "pending":
+        target.is_active = True
+        target.is_archived = False
+        target.account_status = "pending"
+        target.approved_by = None
+        target.approved_at = None
+        target.deactivated_at = None
+        target.deactivated_by = None
+        target.archived_at = None
+        target.archived_by = None
+    elif status == "active":
+        was_pending = target.account_status == "pending"
+        target.is_active = True
+        target.is_archived = False
+        target.account_status = "approved"
+        if was_pending:
+            target.approved_by = actor.id
+            target.approved_at = datetime.utcnow()
+        target.deactivated_at = None
+        target.deactivated_by = None
+        target.archived_at = None
+        target.archived_by = None
+    else:
+        target.is_active = False
+        target.is_archived = status == "archived"
+        target.account_status = "deactivated"
+        target.deactivated_at = datetime.utcnow()
+        target.deactivated_by = actor.id
+        if status == "archived":
+            target.archived_at = datetime.utcnow()
+            target.archived_by = actor.id
+        else:
+            target.archived_at = None
+            target.archived_by = None
     db.session.commit()
     return jsonify({"data": target.to_dict(), "error": None, "message": f"User {status}"})
 
@@ -869,7 +1021,7 @@ def update_admin_user_status(user_id):
 @jwt_required()
 def update_admin_user_role(user_id):
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can change user roles", "FORBIDDEN", 403)
     target = db.session.get(User, user_id)
     protected = _protect_super_admin_target(actor, target)
@@ -918,7 +1070,7 @@ def admin_audit():
 @jwt_required()
 def admin_system_health():
     actor = db.session.get(User, int(get_jwt_identity()))
-    if not getattr(actor, "is_superuser", False):
+    if not is_system_admin(actor):
         return _error("Only the super admin can view system health", "FORBIDDEN", 403)
 
     upload_dir = os.path.abspath(os.path.join(current_app.root_path, "..", "uploads"))
@@ -944,9 +1096,21 @@ def admin_system_health():
 def request_password_reset():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    user = User.query.filter_by(phone_number=phone_number).first() if phone_number else None
+    email = _normalize_email(payload.get("email"))
+    if not phone_number and not email:
+        return _error("Provide your registered email or phone number", "VALIDATION_ERROR", 422)
+    user = (
+        User.query.filter_by(phone_number=phone_number).first()
+        if phone_number
+        else _account_for_email(email)
+    )
+    if user and email and email not in {
+        _normalize_email(user.email),
+        _normalize_email(user.personal_email),
+    }:
+        return _error("Email does not match the registered account", "VALIDATION_ERROR", 422)
     if not user or not user.is_active or user.account_status in ("banned", "deactivated"):
-        return jsonify({"message": "If the phone number is registered, a verification code was sent"})
+        return jsonify({"message": "If the account is eligible, a verification code was sent to its registered email."})
     if not _resend_allowed(user, "password_reset"):
         return _error(
             f"Please wait {OTP_RESEND_DELAY_SECONDS} seconds before requesting another OTP",
@@ -954,18 +1118,26 @@ def request_password_reset():
             429,
         )
     try:
-        challenge = _create_otp(user, "password_reset")
+        _, email_error = _create_otp(user, "password_reset")
         db.session.commit()
+    except EmailDeliveryConfigurationError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
+    except RuntimeError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        return _error("Unable to send verification code", "SERVER_ERROR", 500)
+        current_app.logger.exception("Unable to create or deliver password-reset OTP")
+        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
     return jsonify({
         "verification_required": True,
-        "challenge_id": challenge.challenge_id,
+        "email_sent": email_error is None,
         "message": (
-            "OTP generated. Check the development server console."
-            if current_app.config.get("STORE_PLAINTEXT_OTP")
-            else "OTP generated. Check the configured delivery channel."
+            "A password reset code was sent to your registered work and personal email addresses."
+            if email_error is None
+            else "The OTP is stored in the development database and shown in the server console. "
+            "Email delivery failed; configure SMTP before relying on email OTPs."
         ),
     })
 
@@ -974,15 +1146,25 @@ def request_password_reset():
 def reset_password():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
+    email = _normalize_email(payload.get("email"))
     new_password = payload.get("new_password")
-    if not phone_number or not payload.get("challenge_id") or not payload.get("otp") or not new_password:
-        return _error("phone_number, challenge_id, otp, and new_password are required")
-    if len(new_password) < 8:
+    if not email or not payload.get("otp") or not new_password:
+        return _error("email, otp, and new_password are required")
+    if not isinstance(new_password, str) or len(new_password) < 8:
         return _error("new_password must be at least 8 characters")
+    if phone_number:
+        user = User.query.filter_by(phone_number=phone_number).first()
+        if not user or email not in {
+            _normalize_email(user.email),
+            _normalize_email(user.personal_email),
+        }:
+            return _error("Email does not match the registered account", "UNAUTHORIZED", 401)
+    else:
+        user = _account_for_email(email)
+    if not user:
+        return _error("Invalid OTP challenge", "UNAUTHORIZED", 401)
     try:
-        challenge, error = _verify_otp(
-            payload["challenge_id"], phone_number, payload["otp"], "password_reset"
-        )
+        challenge, error = _verify_otp(user.phone_number, payload["otp"], "password_reset", email)
         if error:
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
@@ -991,8 +1173,73 @@ def reset_password():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        current_app.logger.exception("Password reset failed unexpectedly")
         return _error("Unable to reset password", "SERVER_ERROR", 500)
     return jsonify({"message": "Password reset successfully"})
+
+
+@auth_bp.post("/request-phone-recovery")
+@auth_bp.post("/request-account-recovery")
+def request_phone_recovery():
+    payload = request.get_json(silent=True) or {}
+    email = _normalize_email(payload.get("email"))
+    if not _valid_email(email):
+        return _error("Enter a valid registered email address", "VALIDATION_ERROR", 422)
+    user = _account_for_email(email)
+    if not user or not user.is_active or user.account_status in ("banned", "deactivated"):
+        return jsonify({"message": "If the account is eligible, a recovery code was sent to its registered email."})
+    if not _resend_allowed(user, "account_recovery"):
+        return _error(
+            f"Please wait {OTP_RESEND_DELAY_SECONDS} seconds before requesting another OTP",
+            "TOO_MANY_REQUESTS",
+            429,
+        )
+    try:
+        _, email_error = _create_otp(user, "account_recovery")
+        db.session.commit()
+    except EmailDeliveryConfigurationError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
+    except RuntimeError as exc:
+        db.session.rollback()
+        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Unable to create or deliver account-recovery OTP")
+        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
+    return jsonify({
+        "verification_required": True,
+        "email_sent": email_error is None,
+        "message": (
+            "A recovery code was sent to your registered work and personal email addresses."
+            if email_error is None
+            else "The OTP is stored in the development database and shown in the server console. "
+            "Email delivery failed; configure SMTP before relying on email OTPs."
+        ),
+    })
+
+
+@auth_bp.post("/recover-phone")
+def recover_phone():
+    payload = request.get_json(silent=True) or {}
+    email = _normalize_email(payload.get("email"))
+    otp = payload.get("otp")
+    if not _valid_email(email) or not otp:
+        return _error("email and otp are required")
+    user = _account_for_email(email)
+    if not user:
+        return _error("Invalid OTP challenge", "UNAUTHORIZED", 401)
+    try:
+        challenge, error = _verify_otp(user.phone_number, otp, "account_recovery", email)
+        if error:
+            db.session.commit()
+            return _error(error, "UNAUTHORIZED", 401)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Phone recovery failed unexpectedly")
+        return _error("Unable to recover account", "SERVER_ERROR", 500)
+    return jsonify({"phone_number": user.phone_number, "message": "Phone number recovered successfully"})
 
 
 @auth_bp.post("/accounts/<int:user_id>/approve")
@@ -1010,6 +1257,9 @@ def approve_account(user_id):
         return protected
     if not user:
         return _error("User not found", "NOT_FOUND", 404)
+    if actor_role == "MANAGER":
+        if normalize_role(getattr(user, "role", None)) != "EMPLOYEE" or user.department_id != actor.department_id:
+            return _error("Managers can only approve employees in their department", "FORBIDDEN", 403)
     user.account_status = "approved"
     user.is_active = True
     user.approved_by = actor.id
@@ -1114,6 +1364,20 @@ def update_current_user():
             return _error(f"{field} is too long", "VALIDATION_ERROR", 422)
         if field == "profile_photo_url" and value and not value.startswith("data:image/"):
             return _error("profile_photo_url must be an image upload", "VALIDATION_ERROR", 422)
+        if field == "contact_email":
+            value = _normalize_email(value)
+            if not _valid_email(value):
+                return _error("Enter a valid personal email address", "VALIDATION_ERROR", 422)
+            duplicate = User.query.filter(
+                User.id != user.id,
+                (db.func.lower(User.email) == value)
+                | (db.func.lower(User.personal_email) == value),
+            ).first()
+            if duplicate:
+                return _error("A user with that personal email already exists", "CONFLICT", 409)
+            user.personal_email = value
+            user.contact_email = value
+            continue
         setattr(user, field, value.strip() if isinstance(value, str) else value)
     if "employee_name" in payload:
         user.full_name = user.employee_name

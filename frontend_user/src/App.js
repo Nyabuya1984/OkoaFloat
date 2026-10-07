@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff } from 'react-feather';
+import { Eye, EyeOff, Mail } from 'react-feather';
 import './App.css';
 import AuthenticatedRoutes from './components/AuthenticatedRoutes';
 import { BrowserRouter } from 'react-router-dom';
@@ -14,6 +14,7 @@ const emptyRegistration = {
   employer: '',
   department: '',
   email: '',
+  personal_email: '',
   phone_number: '',
   password: '',
 };
@@ -35,17 +36,17 @@ function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginOtp, setLoginOtp] = useState('');
-  const [loginChallengeId, setLoginChallengeId] = useState('');
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [loginResendCountdown, setLoginResendCountdown] = useState(0);
   const [registration, setRegistration] = useState(emptyRegistration);
   const [registrationOtp, setRegistrationOtp] = useState('');
-  const [registrationChallengeId, setRegistrationChallengeId] = useState('');
+  const [registrationOtpEmail, setRegistrationOtpEmail] = useState('');
   const [registrationOtpSent, setRegistrationOtpSent] = useState(false);
   const [registrationResendCountdown, setRegistrationResendCountdown] = useState(0);
   const [resetPassword, setResetPassword] = useState('');
   const [resetOtp, setResetOtp] = useState('');
-  const [resetChallengeId, setResetChallengeId] = useState('');
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryOtpEmail, setRecoveryOtpEmail] = useState('');
   const [resetOtpSent, setResetOtpSent] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -104,17 +105,16 @@ function App() {
 
     setBusy(true);
     try {
-      const response = await fetch(`${AUTH_API_BASE}/phone-login`, {
+      const response = await fetch(`${AUTH_API_BASE}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone_number: loginPhone.trim(), password: loginPassword }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(apiError(data, 'Unable to sign in.'));
-      setLoginChallengeId(data.challenge_id);
       setLoginOtpSent(true);
       setLoginResendCountdown(5);
-      showMessage('success', 'OTP generated. Enter the code shown in the development server console.');
+      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A verification code was sent to your work and personal email addresses.');
     } catch (error) {
       showMessage('error', error instanceof TypeError ? 'Cannot reach the leave server. Start the backend on port 5000 and try again.' : error.message);
     } finally {
@@ -133,7 +133,7 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: loginPhone.trim(), challenge_id: loginChallengeId, otp: loginOtp.trim() }),
+        body: JSON.stringify({ phone_number: loginPhone.trim(), otp: loginOtp.trim() }),
       });
       const data = await response.json();
       if (!response.ok || !data.access_token) throw new Error(apiError(data, 'Invalid verification code.'));
@@ -147,9 +147,9 @@ function App() {
 
   const submitRegistration = async () => {
     clearMessage();
-    const required = ['employee_name', 'job_position_title', 'employer', 'department', 'email', 'phone_number', 'password'];
+    const required = ['employee_name', 'job_position_title', 'employer', 'department', 'email', 'personal_email', 'phone_number', 'password'];
     if (required.some((field) => !registration[field]?.trim())) {
-      showMessage('error', 'Complete your employee name, job title, employer, department, email, phone number, and password.');
+      showMessage('error', 'Complete your employee name, job title, employer, department, work email, personal email, phone number, and password.');
       return;
     }
     if (!validatePhone(registration.phone_number.trim())) {
@@ -170,10 +170,10 @@ function App() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(apiError(data, 'Registration failed.'));
-      setRegistrationChallengeId(data.challenge_id);
       setRegistrationOtpSent(true);
       setRegistrationResendCountdown(5);
-      showMessage('success', 'OTP generated. Enter the code shown in the development server console.');
+      setRegistrationOtpEmail('');
+      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A verification code was sent to your work and personal email addresses.');
     } catch (error) {
       showMessage('error', error.message);
     } finally {
@@ -202,7 +202,7 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/verify-registration`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: registration.phone_number.trim(), challenge_id: registrationChallengeId, otp: registrationOtp.trim() }),
+        body: JSON.stringify({ phone_number: registration.phone_number.trim(), email: registrationOtpEmail.trim(), otp: registrationOtp.trim() }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(apiError(data, 'Verification failed.'));
@@ -221,8 +221,8 @@ function App() {
 
   const requestPasswordReset = async () => {
     clearMessage();
-    if (!validatePhone(loginPhone.trim())) {
-      showMessage('error', 'Enter a valid Kenyan phone number.');
+    if (!recoveryEmail.trim()) {
+      showMessage('error', 'Enter the email address registered to your account.');
       return;
     }
     setBusy(true);
@@ -230,13 +230,63 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/request-password-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: loginPhone.trim() }),
+        body: JSON.stringify({ email: recoveryEmail.trim() }),
       });
       const data = await response.json();
-      if (!response.ok || !data.challenge_id) throw new Error(apiError(data, 'Unable to request a reset code.'));
-      setResetChallengeId(data.challenge_id);
+      if (!response.ok) throw new Error(apiError(data, 'Unable to request a reset code.'));
       setResetOtpSent(true);
-      showMessage('success', 'OTP generated. Enter the code shown in the development server console.');
+      setRecoveryOtpEmail('');
+      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A password reset code was sent to your registered email.');
+    } catch (error) {
+      showMessage('error', error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestPhoneRecovery = async () => {
+    clearMessage();
+    if (!recoveryEmail.trim()) {
+      showMessage('error', 'Enter the email address registered to your account.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(`${AUTH_API_BASE}/request-phone-recovery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryEmail.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(apiError(data, 'Unable to request account recovery.'));
+      setRecoveryOtpEmail('');
+      setResetOtpSent(true);
+      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A recovery code was sent to your registered email.');
+    } catch (error) {
+      showMessage('error', error instanceof TypeError ? 'Cannot reach the authentication server.' : error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const recoverPhone = async () => {
+    clearMessage();
+    if (resetOtp.trim().length !== 6 || !recoveryOtpEmail.trim()) {
+      showMessage('error', 'Enter the 6-digit code and confirm the registered email address.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(`${AUTH_API_BASE}/recover-phone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryOtpEmail.trim(), otp: resetOtp.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(apiError(data, 'Unable to recover the phone number.'));
+      setLoginPhone(data.phone_number);
+      setResetOtpSent(false);
+      showMessage('success', `Your registered phone number is ${data.phone_number}.`);
     } catch (error) {
       showMessage('error', error.message);
     } finally {
@@ -246,8 +296,8 @@ function App() {
 
   const resetPasswordRequest = async () => {
     clearMessage();
-    if (resetOtp.trim().length !== 6 || resetPassword.length < 8) {
-      showMessage('error', 'Enter the 6-digit code and a password of at least 8 characters.');
+    if (resetOtp.trim().length !== 6 || resetPassword.length < 8 || !recoveryOtpEmail.trim()) {
+      showMessage('error', 'Confirm the registered email, enter the 6-digit code, and choose a password of at least 8 characters.');
       return;
     }
     setBusy(true);
@@ -255,7 +305,7 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: loginPhone.trim(), challenge_id: resetChallengeId, otp: resetOtp.trim(), new_password: resetPassword }),
+        body: JSON.stringify({ email: recoveryOtpEmail.trim(), otp: resetOtp.trim(), new_password: resetPassword }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(apiError(data, 'Unable to reset password.'));
@@ -315,7 +365,8 @@ function App() {
 
   const isRegistration = authView === 'register';
   const isReset = authView === 'reset';
-  const isOtp = isRegistration ? registrationOtpSent : isReset ? resetOtpSent : loginOtpSent;
+  const isPhoneRecovery = authView === 'forgot-phone';
+  const isOtp = isRegistration ? registrationOtpSent : isReset || isPhoneRecovery ? resetOtpSent : loginOtpSent;
 
   return (
     <div className="activation-container auth-page">
@@ -331,39 +382,57 @@ function App() {
           <div className="auth-panel-logo"><img className="auth-logo" src="/Okoafloat.png" alt="Okoa Float" /></div>
           <div className="auth-form-heading">
             <span className="auth-eyebrow">EMPLOYEE PORTAL</span>
-            <h1>{isRegistration ? 'Create your account' : isReset ? 'Reset your password' : isOtp ? 'Verify your identity' : 'Welcome back'}</h1>
-            <p>{isRegistration ? 'Register to manage your leave.' : isReset ? 'Use the code generated for your mobile number.' : 'Sign in to manage your leave.'}</p>
+            <h1>{isRegistration ? 'Create your account' : isReset ? 'Reset your password' : isPhoneRecovery ? 'Recover your phone number' : isOtp ? 'Verify your identity' : 'Welcome back'}</h1>
+            <p>{isRegistration ? 'Register to manage your leave.' : isReset || isPhoneRecovery ? 'A secure code will be sent to your registered email address.' : 'Sign in to manage your leave.'}</p>
           </div>
 
           {message && <div className={`login-${message.type === 'error' ? 'error' : 'success'}`} role="alert">{message.text}</div>}
 
           {isRegistration ? (
             registrationOtpSent ? (
-              <OtpForm value={registrationOtp} onChange={setRegistrationOtp} onSubmit={verifyRegistration} onResend={resendRegistrationOtp} resendCountdown={registrationResendCountdown} busy={busy} label="Enter registration code" />
+              <>
+                <EmailField value={registrationOtpEmail} onChange={setRegistrationOtpEmail} label="Confirm work or personal email" />
+                <OtpForm value={registrationOtp} onChange={setRegistrationOtp} onSubmit={verifyRegistration} onResend={resendRegistrationOtp} resendCountdown={registrationResendCountdown} busy={busy} label="Enter email verification code" />
+              </>
             ) : <RegistrationForm values={registration} setValues={setRegistration} onSubmit={submitRegistration} busy={busy} />
           ) : isReset ? (
             resetOtpSent ? (
               <>
-                <OtpForm value={resetOtp} onChange={setResetOtp} onSubmit={resetPasswordRequest} busy={busy} label="Enter reset code" />
+                <EmailField value={recoveryOtpEmail} onChange={setRecoveryOtpEmail} label="Confirm work or personal email" />
+                <div className="activation-input-group"><label>Enter reset code</label><input type="text" inputMode="numeric" maxLength={6} value={resetOtp} onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, ''))} placeholder="_ _ _ _ _ _" className="activation-input otp-input" autoFocus /></div>
                 <PasswordField value={resetPassword} onChange={setResetPassword} visible={showResetPassword} setVisible={setShowResetPassword} label="New password" />
+                <div className="activation-actions"><button onClick={resetPasswordRequest} disabled={busy} className="btn-activate">{busy ? 'Resetting...' : 'Reset password'}</button></div>
               </>
-            ) : (
+            ) : <EmailField value={recoveryEmail} onChange={setRecoveryEmail} label="Work or personal email" onSubmit={requestPasswordReset} busy={busy} buttonLabel="Send reset code" />
+          ) : isPhoneRecovery ? (
+            resetOtpSent ? (
               <>
-                <PhoneForm value={loginPhone} onChange={setLoginPhone} onSubmit={requestPasswordReset} busy={busy} label="Phone number" buttonLabel="Send reset code" />
+                <EmailField value={recoveryOtpEmail} onChange={setRecoveryOtpEmail} label="Confirm work or personal email" />
+                <div className="activation-input-group"><label>Enter recovery code</label><input type="text" inputMode="numeric" maxLength={6} value={resetOtp} onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, ''))} placeholder="_ _ _ _ _ _" className="activation-input otp-input" autoFocus /></div>
+                <div className="activation-actions"><button onClick={recoverPhone} disabled={busy} className="btn-activate">{busy ? 'Verifying...' : 'Recover phone number'}</button></div>
               </>
-            )
+            ) : <EmailField value={recoveryEmail} onChange={setRecoveryEmail} label="Work or personal email" onSubmit={requestPhoneRecovery} busy={busy} buttonLabel="Send recovery code" />
           ) : loginOtpSent ? (
-            <OtpForm value={loginOtp} onChange={setLoginOtp} onSubmit={verifyLogin} onResend={resendLoginOtp} resendCountdown={loginResendCountdown} busy={busy} label="Enter 6-digit login code" />
+            <>
+              <div className="auth-otp-notice" role="status">
+                <span className="auth-otp-notice-icon" aria-hidden="true"><Mail size={19} /></span>
+                <div>
+                  <strong>Check your email</strong>
+                  <p>We sent a 6-digit sign-in code to the email address linked to <b>{loginPhone}</b>. Enter the code below to continue.</p>
+                </div>
+              </div>
+              <OtpForm value={loginOtp} onChange={setLoginOtp} onSubmit={verifyLogin} onResend={resendLoginOtp} resendCountdown={loginResendCountdown} busy={busy} label="Enter 6-digit email code" />
+            </>
           ) : (
             <>
               <PhoneForm value={loginPhone} onChange={setLoginPhone} label="Phone number" />
               <PasswordField value={loginPassword} onChange={setLoginPassword} visible={showLoginPassword} setVisible={setShowLoginPassword} label="Password" />
               <div className="activation-actions"><button onClick={submitLogin} disabled={busy} className="btn-activate">{busy ? 'Authenticating...' : 'Sign in'}</button></div>
-              <div className="auth-links"><button onClick={() => { clearMessage(); setAuthView('reset'); }} className="btn-resend-link">Forgot password?</button><button onClick={() => { clearMessage(); setAuthView('register'); }} className="btn-resend-link">Register here</button></div>
+              <div className="auth-links"><button onClick={() => { clearMessage(); setAuthView('reset'); setResetOtpSent(false); }} className="btn-resend-link">Forgot password?</button><button onClick={() => { clearMessage(); setAuthView('forgot-phone'); setResetOtpSent(false); }} className="btn-resend-link">Forgot phone number?</button><button onClick={() => { clearMessage(); setAuthView('register'); }} className="btn-resend-link">Register here</button></div>
             </>
           )}
 
-          {(isOtp || isRegistration || isReset) && <div className="auth-links"><button className="btn-resend-link" onClick={() => { clearMessage(); setAuthView('login'); setLoginOtpSent(false); setRegistrationOtpSent(false); setResetOtpSent(false); }}>Back to sign in</button></div>}
+          {(isOtp || isRegistration || isReset || isPhoneRecovery) && <div className="auth-links"><button className="btn-resend-link" onClick={() => { clearMessage(); setAuthView('login'); setLoginOtpSent(false); setRegistrationOtpSent(false); setResetOtpSent(false); setLoginOtp(''); setResetOtp(''); }}>Back to sign in</button></div>}
         </section>
       </div>
     </div>
@@ -374,6 +443,14 @@ const PhoneForm = ({ value, onChange, onSubmit, busy, label, buttonLabel }) => (
   <div className="activation-input-group login-phone-group">
     <label>{label}</label>
     <input type="tel" autoComplete="tel" value={value} onChange={(event) => onChange(event.target.value)} placeholder="0712 345 678" className="activation-input" disabled={busy} onKeyDown={(event) => event.key === 'Enter' && onSubmit?.()} />
+    {onSubmit && <div className="activation-actions"><button onClick={onSubmit} disabled={busy} className="btn-activate">{busy ? 'Please wait...' : buttonLabel}</button></div>}
+  </div>
+);
+
+const EmailField = ({ value, onChange, label, onSubmit, busy, buttonLabel }) => (
+  <div className="activation-input-group">
+    <label>{label}</label>
+    <input type="email" autoComplete="email" value={value} onChange={(event) => onChange(event.target.value)} placeholder="name@example.com" className="activation-input" disabled={busy} onKeyDown={(event) => event.key === 'Enter' && onSubmit?.()} />
     {onSubmit && <div className="activation-actions"><button onClick={onSubmit} disabled={busy} className="btn-activate">{busy ? 'Please wait...' : buttonLabel}</button></div>}
   </div>
 );
@@ -392,11 +469,7 @@ const OtpForm = ({ value, onChange, onSubmit, onResend, resendCountdown, busy, l
   <>
     <div className="activation-input-group"><label>{label}</label><input type="text" inputMode="numeric" maxLength={6} value={value} onChange={(event) => onChange(event.target.value.replace(/\D/g, ''))} placeholder="_ _ _ _ _ _" className="activation-input otp-input" autoFocus /></div>
     <div className="activation-actions"><button onClick={onSubmit} disabled={busy} className="btn-activate">{busy ? 'Verifying...' : 'Verify code'}</button></div>
-    <div className="auth-links otp-resend">
-      <button type="button" className="btn-resend-link" onClick={onResend} disabled={busy || resendCountdown > 0}>
-        {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : 'Resend code'}
-      </button>
-    </div>
+    {onResend && <div className="auth-links otp-resend"><button type="button" className="btn-resend-link" onClick={onResend} disabled={busy || resendCountdown > 0}>{resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : 'Resend code'}</button></div>}
   </>
 );
 
@@ -411,6 +484,7 @@ const RegistrationForm = ({ values, setValues, onSubmit, busy }) => {
       ['employer', 'Employer', 'text'],
       ['department', 'Department', 'text'],
       ['email', 'Work email', 'email'],
+      ['personal_email', 'Personal email', 'email'],
       ['phone_number', 'Phone number', 'tel'],
       ].map(([field, label, type]) => <div className="activation-input-group" key={field}><label>{label}</label><input type={type} value={values[field]} onChange={(event) => setValues({ ...values, [field]: event.target.value })} placeholder={label} className="activation-input" /></div>)}
       <PasswordField value={values.password} onChange={(password) => setValues({ ...values, password })} visible={showPassword} setVisible={setShowPassword} label="Password" />

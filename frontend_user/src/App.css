@@ -107,6 +107,11 @@ textarea {
 .login-error, .login-success { margin-bottom: 18px; padding: 12px 14px; border-radius: 6px; font: 13px/1.5 Arial, sans-serif; }
 .login-error { border: 1px solid #f1c1bc; color: #9d352b; background: #fbe9e7; }
 .login-success { border: 1px solid #bfe2cc; color: #21633d; background: #e3f3e8; }
+.auth-otp-notice { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid #f2d4c5; border-left: 4px solid #ed6a16; border-radius: 8px; color: #3e4a59; background: #fff8f3; font: 13px/1.5 Arial, sans-serif; }
+.auth-otp-notice-icon { display: grid; flex: 0 0 34px; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: #d85b16; background: #ffeadc; }
+.auth-otp-notice strong { display: block; margin: 1px 0 4px; color: #26303d; font-size: 14px; }
+.auth-otp-notice p { margin: 0; }
+.auth-otp-notice b { color: #26303d; font-weight: 700; white-space: nowrap; }
 .otp-input { text-align: center; font-size: 24px; letter-spacing: 9px; }
 
 @media (max-width: 700px) {

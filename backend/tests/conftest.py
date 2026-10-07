@@ -1,5 +1,6 @@
+import hashlib
 import os
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pymysql
@@ -8,10 +9,10 @@ import pytest
 from app import create_app
 from app.config import config
 from app.extensions import db
-from app.models import LeaveBalance, LeavePolicy, LeaveType, User
+from app.models import LeaveBalance, LeavePolicy, LeaveType, OtpChallenge, User
 
 
-TEST_DATABASE = "Okoa_Float_DB_test"
+TEST_DATABASE = os.getenv("TEST_DATABASE", "Okoa_Float_DB_test")
 ADMIN_EMAIL = "admin@okoa.local"
 ADMIN_PASSWORD = "Admin@2026!"
 
@@ -33,14 +34,35 @@ def _server_connection():
     )
 
 
-def _test_database_uri():
+def _test_database_uri(database_name=None):
     settings = _database_settings()
+    database_name = database_name or TEST_DATABASE
     return (
         "mysql+pymysql://"
         f"{settings['user']}:{settings['password']}"
         f"@{settings['host']}:{settings['port']}"
-        f"/{TEST_DATABASE}"
+        f"/{database_name}"
     )
+
+
+def _setup_test_database():
+    target_database = TEST_DATABASE
+    connection = _server_connection()
+    try:
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(
+                    f"CREATE DATABASE IF NOT EXISTS `{target_database}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+                return target_database, False
+            except pymysql.err.OperationalError as exc:
+                code = exc.args[0] if exc.args else None
+                if code in {1044, 1227, 1142}:
+                    return os.getenv("DB_NAME", "Okoa_Float_DB"), True
+                raise
+    finally:
+        connection.close()
 
 
 def _seed_database():
@@ -48,6 +70,7 @@ def _seed_database():
         employee_id="HR-0001",
         full_name="System Administrator",
         email=ADMIN_EMAIL,
+        personal_email="admin.personal@example.com",
         phone_number="+254700000001",
         role="hr_admin",
         department="HR",
@@ -68,6 +91,7 @@ def _seed_database():
         ("PATERNITY", "Paternity Leave", True, False, 14, 0, 0, 14, "Male", 0),
         ("COMPASSIONATE", "Compassionate Leave", True, False, 7, 0, 0, 0, None, 0),
         ("STUDY", "Study Leave", True, True, 10, 0, 0, 30, None, 12),
+        ("UNPAID", "Unpaid Leave", False, False, 0, 0, 0, 0, None, 0),
     ]
 
     for code, name, paid, document, days, accrual, carryover, notice, gender, minimum in leave_definitions:
@@ -108,33 +132,32 @@ def _seed_database():
 
 @pytest.fixture(scope="session")
 def app():
-    connection = _server_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"CREATE DATABASE IF NOT EXISTS `{TEST_DATABASE}` "
-                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
-    finally:
-        connection.close()
-
-    config["testing"].SQLALCHEMY_DATABASE_URI = _test_database_uri()
+    database_name, fallback_to_existing_db = _setup_test_database()
+    config["testing"].SQLALCHEMY_DATABASE_URI = _test_database_uri(database_name)
     application = create_app("testing")
-    application.config["JWT_ACCESS_TOKEN_EXPIRES"] = False
+    application.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=30)
+    application.config["TEST_EMAIL_OUTBOX"] = []
+    application.config["OTP_EMAIL_SENDER"] = (
+        lambda recipient, subject, body: application.config["TEST_EMAIL_OUTBOX"].append(
+            {"recipient": recipient, "subject": subject, "body": body}
+        )
+    )
 
     with application.app_context():
+        db.drop_all()
         db.create_all()
         _seed_database()
         yield application
         db.session.remove()
         db.drop_all()
 
-    connection = _server_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(f"DROP DATABASE IF EXISTS `{TEST_DATABASE}`")
-    finally:
-        connection.close()
+    if not fallback_to_existing_db:
+        connection = _server_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP DATABASE IF EXISTS `{database_name}`")
+        finally:
+            connection.close()
 
 
 @pytest.fixture(autouse=True)
@@ -162,9 +185,35 @@ def session(app):
 
 @pytest.fixture
 def admin_token(client):
-    response = client.post(
+    return _login_with_otp(client, "+254700000001", ADMIN_PASSWORD)
+
+
+def _login_with_otp(client, phone_number, password):
+    login_response = client.post(
         "/api/auth/login",
-        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+        json={"phone_number": phone_number, "password": password},
+    )
+    assert login_response.status_code == 200, login_response.get_json()
+    with client.application.app_context():
+        challenge = OtpChallenge.query.filter_by(
+            phone_number=phone_number, purpose="login"
+        ).order_by(OtpChallenge.created_at.desc()).first()
+        assert challenge is not None
+        email = User.query.filter_by(phone_number=phone_number).one().email
+        challenge.code_hash = hashlib.sha256(b"123456").hexdigest()
+        db.session.commit()
+    response = client.post(
+        "/api/auth/verify-otp",
+        json={
+            "phone_number": phone_number,
+            "email": email,
+            "otp": "123456",
+        },
     )
     assert response.status_code == 200, response.get_json()
     return response.get_json()["access_token"]
+
+
+@pytest.fixture
+def login_with_otp(client):
+    return lambda phone_number, password: _login_with_otp(client, phone_number, password)

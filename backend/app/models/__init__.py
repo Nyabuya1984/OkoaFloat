@@ -11,8 +11,23 @@ from app.models.leave import (
     User,
 )
 from app.models.auth import AuthSession, OtpChallenge
+from app.models.dashboard_feature import DashboardFeatureSetting
 from app.models.chat import ChatMessage
 from app.models.sales import SalesDailyReport
+from app.models.debt_collection import (
+    DebtCollectionAssignment,
+    DebtCollectionAuditLog,
+    DebtCollectionCallLog,
+    DebtCollectionCreditRating,
+    DebtCollectionDebtor,
+    DebtCollectionDutyAssignment,
+    DebtCollectionFollowUpSchedule,
+    DebtCollectionImportIssue,
+    DebtCollectionImportJob,
+    DebtCollectionLoan,
+    DebtCollectionLoanStatusHistory,
+    DebtCollectionPayment,
+)
 from app.models.handover import (
     HandoverAcceptance,
     HandoverAccess,
@@ -34,10 +49,23 @@ __all__ = [
     "CompanyHoliday",
     "AuditLog",
     "Notification",
-    "OtpChallenge",
     "AuthSession",
+    "OtpChallenge",
+    "DashboardFeatureSetting",
     "ChatMessage",
     "SalesDailyReport",
+    "DebtCollectionDebtor",
+    "DebtCollectionDutyAssignment",
+    "DebtCollectionLoan",
+    "DebtCollectionAssignment",
+    "DebtCollectionCallLog",
+    "DebtCollectionPayment",
+    "DebtCollectionFollowUpSchedule",
+    "DebtCollectionCreditRating",
+    "DebtCollectionLoanStatusHistory",
+    "DebtCollectionAuditLog",
+    "DebtCollectionImportJob",
+    "DebtCollectionImportIssue",
     "HandoverReport",
     "HandoverTask",
     "HandoverRecurring",

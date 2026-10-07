@@ -2,16 +2,18 @@
 
 from sqlalchemy import or_
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import User
-from app.utils.rbac import is_super_admin, normalize_role, require_min_tier, user_tier
+from app.models import DashboardFeatureSetting, DebtCollectionAuditLog, DebtCollectionDutyAssignment, User
+from app.utils.rbac import is_super_admin, is_system_admin, normalize_role, require_min_tier, user_tier
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 VALID_STATUSES = {"active", "deactivated", "archived", "deleted", "all"}
+FEATURE_ROLES = {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
+FEATURE_NAMES = {"sales_reports", "debt_collection"}
 
 
 def _error(message, code="BAD_REQUEST", status=400):
@@ -62,6 +64,134 @@ def _user_summary(user):
         **user.to_dict(),
         "state": user.state(),
     }
+
+
+def _feature_enabled(role, feature):
+    setting = DashboardFeatureSetting.query.filter_by(role=role, feature=feature).first()
+    return setting.enabled if setting else True
+
+
+@admin_bp.get("/dashboard-features")
+@require_min_tier(1)
+def get_dashboard_features():
+    actor = _actor()
+    if actor is None:
+        return _error("Authenticated user could not be found", "FORBIDDEN", 403)
+
+    role = normalize_role(actor.role)
+    duties = {
+        assignment.duty
+        for assignment in DebtCollectionDutyAssignment.query.filter_by(user_id=actor.id).all()
+    }
+    if role == "EMPLOYEE" and duties:
+        sales_enabled = "sales_marketing_executive" in duties
+        debt_enabled = bool(duties & {"departmental_manager", "debt_collector_agent"})
+    else:
+        sales_enabled = role in {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
+        debt_enabled = role in {"MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
+    sales_enabled = sales_enabled and _feature_enabled(role, "sales_reports")
+    debt_enabled = debt_enabled and _feature_enabled(role, "debt_collection")
+    data = {
+        "features": {
+            "sales_reports": sales_enabled,
+            "debt_collection": debt_enabled,
+        },
+        "duties": sorted(duties),
+    }
+    if is_system_admin(actor):
+        data["roles"] = {
+            feature_role: {
+                "sales_reports": _feature_enabled(feature_role, "sales_reports"),
+                "debt_collection": _feature_enabled(feature_role, "debt_collection"),
+            }
+            for feature_role in sorted(FEATURE_ROLES)
+        }
+    return jsonify({"data": data, "error": None})
+
+
+@admin_bp.get("/user-duties")
+@jwt_required()
+def list_user_duties():
+    actor = _actor()
+    if actor is None or not actor.is_currently_active() or not is_super_admin(actor):
+        return _error("Only a super administrator can view employee duties", "FORBIDDEN", 403)
+    assignments = DebtCollectionDutyAssignment.query.order_by(
+        DebtCollectionDutyAssignment.user_id,
+        DebtCollectionDutyAssignment.duty,
+    ).all()
+    data = {}
+    for assignment in assignments:
+        data.setdefault(str(assignment.user_id), []).append(assignment.duty)
+    return jsonify({"data": data, "error": None})
+
+
+@admin_bp.put("/users/<int:user_id>/duties")
+@jwt_required()
+def update_user_duties(user_id):
+    from app.models.debt_collection import DUTY_ROLES
+
+    actor = _actor()
+    if actor is None or not actor.is_currently_active() or not is_super_admin(actor):
+        return _error("Only a super administrator can assign employee duties", "FORBIDDEN", 403)
+    target = db.session.get(User, user_id)
+    if not target or not target.is_currently_active():
+        return _error("Active employee not found", "NOT_FOUND", 404)
+    payload = request.get_json(silent=True)
+    duties = payload.get("duties") if isinstance(payload, dict) else None
+    if not isinstance(duties, list) or any(not isinstance(duty, str) for duty in duties):
+        return _error("duties must be a list of role identifiers", "VALIDATION_ERROR", 422)
+    requested = set(duties)
+    if requested - DUTY_ROLES:
+        return _error("duties contains an unsupported role", "VALIDATION_ERROR", 422)
+
+    existing = {
+        assignment.duty: assignment
+        for assignment in DebtCollectionDutyAssignment.query.filter_by(user_id=target.id).all()
+    }
+    changed = sorted(set(existing) ^ requested)
+    for duty in set(existing) - requested:
+        db.session.delete(existing[duty])
+    for duty in requested - set(existing):
+        db.session.add(DebtCollectionDutyAssignment(
+            user_id=target.id,
+            duty=duty,
+            assigned_by=actor.id,
+        ))
+    for duty in changed:
+        db.session.add(DebtCollectionAuditLog(
+            user_id=actor.id,
+            entity="UserDutyAssignment",
+            action="duty_assigned" if duty in requested else "duty_removed",
+            before={"user_id": target.id, "duty": duty} if duty in existing else None,
+            after={"user_id": target.id, "duty": duty} if duty in requested else None,
+        ))
+    db.session.commit()
+    return jsonify({"data": {"user_id": target.id, "duties": sorted(requested)}, "error": None})
+
+
+@admin_bp.patch("/dashboard-features")
+@jwt_required()
+def update_dashboard_feature():
+    actor = _actor()
+    if actor is None or not actor.is_currently_active() or not is_system_admin(actor):
+        return _error("Only a system administrator can update dashboard features", "FORBIDDEN", 403)
+    payload = request.get_json(silent=True) or {}
+    role_value = payload.get("role")
+    role_key = role_value.strip().replace("-", "_").replace(" ", "_").upper() if isinstance(role_value, str) else ""
+    role = normalize_role(role_key) if role_key in FEATURE_ROLES else ""
+    feature = str(payload.get("feature", "")).strip().lower()
+    enabled = payload.get("enabled")
+    if role not in FEATURE_ROLES or feature not in FEATURE_NAMES or not isinstance(enabled, bool):
+        return _error("A valid role, feature, and enabled value are required", "VALIDATION_ERROR", 422)
+
+    setting = DashboardFeatureSetting.query.filter_by(role=role, feature=feature).first()
+    if setting is None:
+        setting = DashboardFeatureSetting(role=role, feature=feature, enabled=enabled)
+        db.session.add(setting)
+    else:
+        setting.enabled = enabled
+    db.session.commit()
+    return jsonify({"data": {"role": role, "feature": feature, "enabled": enabled}, "error": None})
 
 
 @admin_bp.get("/users")

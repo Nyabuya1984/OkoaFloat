@@ -25,9 +25,11 @@ import SalesReportsPanel from './SalesReportsPanel';
 import SalesReportsPage from './SalesReportsPage';
 import LeaveApplicationWizard from './LeaveApplicationWizard';
 import TeamCalendarSection from './TeamCalendarSection';
-import { getAuthToken } from '../services/authStorage';
+import { getAuthToken, refreshAuthToken } from '../services/authStorage';
 import { apiUrl } from '../services/apiConfig';
 import SalesV2DashboardWidgets from './sales/SalesV2DashboardWidgets';
+import DebtCollectionPage from './DebtCollectionPage';
+import { isDashboardFeatureEnabled } from '../navigation';
 
 const emptyForm = {
   leave_type_id: '', start_date: '', end_date: '', reason: '', contact_phone: '', contact_email: '',
@@ -98,6 +100,10 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const [adminDepartments, setAdminDepartments] = useState([]);
   const [adminLeaveTypes, setAdminLeaveTypes] = useState([]);
   const [adminWorkflowSettings, setAdminWorkflowSettings] = useState(defaultWorkflowSettings);
+  const [dashboardFeatures, setDashboardFeatures] = useState({ sales_reports: true, debt_collection: true });
+  const [dashboardRoleFeatures, setDashboardRoleFeatures] = useState({ EMPLOYEE: { sales_reports: true, debt_collection: true }, MANAGER: { sales_reports: true, debt_collection: true }, HR_ADMIN: { sales_reports: true, debt_collection: true }, SYSTEM_ADMIN: { sales_reports: true, debt_collection: true }, SUPER_ADMIN: { sales_reports: true, debt_collection: true } });
+  const [userDuties, setUserDuties] = useState({});
+  const [userDutySearch, setUserDutySearch] = useState('');
   const [securityEvents, setSecurityEvents] = useState([]);
   const [adminAudit, setAdminAudit] = useState([]);
   const [adminHealth, setAdminHealth] = useState({ database: 'unknown', uploads_ready: false, active_users: 0, pending_users: 0 });
@@ -120,12 +126,18 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   });
 
   const role = String(currentUser?.role || 'employee').toLowerCase();
+  const canAssignEmployeeDuties = role === 'super_admin' || currentUser?.is_superuser === true;
   const isManager = role === 'manager';
   const isHr = ['hr_admin', 'system_admin'].includes(role);
-  const isSuperAdmin = role === 'super_admin' || (role === 'hr_admin' && currentUser?.is_superuser === true);
+  const isSuperAdmin = role === 'super_admin' || currentUser?.is_superuser === true || role === 'system_admin' || (role === 'hr_admin' && currentUser?.is_superuser === true);
   const canApprove = isManager || isHr || isSuperAdmin;
   const isSalesEmployee = role === 'employee' && !isSuperAdmin;
-  const canAccessSalesReports = isSalesEmployee || isManager || isHr || isSuperAdmin;
+  const filteredDutyUsers = adminUsers.filter((user) => {
+    const query = userDutySearch.trim().toLowerCase();
+    return !query || [user.full_name, user.email, user.employee_id].some((value) => String(value || '').toLowerCase().includes(query));
+  });
+  const canAccessSalesReports = isDashboardFeatureEnabled(dashboardFeatures, 'sales_reports') && (isSalesEmployee || isManager || isHr || isSuperAdmin);
+  const canAccessDebtCollection = isDashboardFeatureEnabled(dashboardFeatures, 'debt_collection') && (isSalesEmployee || isManager || isHr || isSuperAdmin);
 
   const openSalesReports = (targetId = 'sales-report-workspace') => {
     if (!canAccessSalesReports) {
@@ -146,6 +158,13 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
 
   const navigateToSection = (section, path) => {
     if (section === 'sales-reports' && !canAccessSalesReports) {
+      setActiveSection('dashboard');
+      const redirect = role === 'manager' ? '/manager' : ['hr_admin', 'system_admin', 'super_admin'].includes(role) ? '/hr' : '/dashboard';
+      window.history.pushState({}, '', redirect);
+      window.requestAnimationFrame(() => document.getElementById('overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    if (section === 'debt-collection' && !canAccessDebtCollection) {
       setActiveSection('dashboard');
       const redirect = role === 'manager' ? '/manager' : ['hr_admin', 'system_admin', 'super_admin'].includes(role) ? '/hr' : '/dashboard';
       window.history.pushState({}, '', redirect);
@@ -177,7 +196,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
       window.requestAnimationFrame(() => document.getElementById('managed-users')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       return;
     }
-    const targetId = section === 'dashboard' ? 'overview' : section === 'my-leave' ? 'requests' : section === 'history' ? 'history' : section === 'delegations' ? 'delegations' : section === 'approvals' && isSuperAdmin ? 'pending-leave-approvals' : section === 'reports' && !canApprove ? 'sales-daily-report' : section === 'users' && !isSuperAdmin ? 'managed-users' : section === 'hr-verification' ? 'approvals' : section === 'workflow' ? 'workflow-settings' : section === 'security' ? 'security-events' : section === 'hr-module' ? 'hr-module' : section === 'sessions' || section === 'invites' ? 'overview' : section;
+    const targetId = section === 'dashboard' ? 'overview' : section === 'my-leave' ? 'requests' : section === 'history' ? 'history' : section === 'delegations' ? 'delegations' : section === 'approvals' && isSuperAdmin ? 'pending-leave-approvals' : section === 'reports' && !canApprove ? 'sales-daily-report' : section === 'users' && !isSuperAdmin ? 'managed-users' : section === 'hr-verification' ? 'approvals' : section === 'workflow' ? 'workflow-settings' : section === 'security' ? 'security-events' : section === 'hr-module' ? 'hr-module' : section === 'debt-collection' ? 'debt-collection' : section === 'sessions' || section === 'invites' ? 'overview' : section;
     setActiveSection(section);
     window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
@@ -222,7 +241,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const loadSuperAdminData = async () => {
     try {
       const token = getAuthToken();
-      const [usersResponse, departmentsResponse, leaveTypesResponse, workflowResponse, securityResponse, auditResponse, healthResponse] = await Promise.all([
+      const [usersResponse, departmentsResponse, leaveTypesResponse, workflowResponse, securityResponse, auditResponse, healthResponse, featuresResponse, dutiesResponse] = await Promise.all([
         fetch(apiUrl('/api/auth/admin/users'), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl('/api/auth/admin/departments'), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl('/api/auth/admin/leave-types'), { headers: { Authorization: `Bearer ${token}` } }),
@@ -230,8 +249,12 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         fetch(apiUrl('/api/auth/admin/security-events'), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl('/api/auth/admin/audit'), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl('/api/auth/admin/system-health'), { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(apiUrl('/api/admin/dashboard-features'), { headers: { Authorization: `Bearer ${token}` } }),
+        canAssignEmployeeDuties
+          ? fetch(apiUrl('/api/admin/user-duties'), { headers: { Authorization: `Bearer ${token}` } })
+          : Promise.resolve(null),
       ]);
-      const [usersPayload, departmentsPayload, leaveTypesPayload, workflowPayload, securityPayload, auditPayload, healthPayload] = await Promise.all([
+      const [usersPayload, departmentsPayload, leaveTypesPayload, workflowPayload, securityPayload, auditPayload, healthPayload, featuresPayload, dutiesPayload] = await Promise.all([
         usersResponse.json(),
         departmentsResponse.json(),
         leaveTypesResponse.json(),
@@ -239,6 +262,8 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         securityResponse.json(),
         auditResponse.json(),
         healthResponse.json(),
+        featuresResponse.json(),
+        dutiesResponse ? dutiesResponse.json() : Promise.resolve(null),
       ]);
       setAdminUsers(usersPayload.data || []);
       setAdminDepartments(departmentsPayload.data || []);
@@ -247,10 +272,87 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
       setSecurityEvents(securityPayload.data || []);
       setAdminAudit(auditPayload.data || []);
       setAdminHealth(healthPayload.data || { database: 'unknown', uploads_ready: false, active_users: 0, pending_users: 0 });
+      if (dutiesPayload?.data) setUserDuties(dutiesPayload.data);
+      if (featuresPayload.data) {
+        setDashboardFeatures({ sales_reports: true, debt_collection: true, ...(featuresPayload.data.features || {}) });
+        setDashboardRoleFeatures(
+          featuresPayload.data.roles || {
+            EMPLOYEE: { sales_reports: true, debt_collection: true },
+            MANAGER: { sales_reports: true, debt_collection: true },
+            HR_ADMIN: { sales_reports: true, debt_collection: true },
+            SYSTEM_ADMIN: { sales_reports: true, debt_collection: true },
+            SUPER_ADMIN: { sales_reports: true, debt_collection: true },
+          }
+        );
+      }
     } catch (error) {
       setMessage({ type: 'error', text: error.message || 'Unable to load system administration data.' });
     }
   };
+
+  const updateDashboardRoleFeature = async (roleName, feature, enabled) => {
+    try {
+      const response = await fetch(apiUrl('/api/admin/dashboard-features'), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ role: roleName, feature, enabled }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message || 'Unable to update dashboard feature.');
+      const label = feature === 'debt_collection' ? 'Debt Collection' : 'Sales Reports';
+      setDashboardRoleFeatures((current) => ({
+        ...current,
+        [roleName]: { ...current[roleName], [feature]: enabled },
+      }));
+      setMessage({ type: 'success', text: `${label} ${enabled ? 'enabled' : 'disabled'} for ${roleName.replace('_', ' ').toLowerCase()} users.` });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const refreshFeatures = () => {
+      const request = () => fetch(apiUrl('/api/admin/dashboard-features'), { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      request()
+        .then(async (response) => {
+          if (response.status === 401 && await refreshAuthToken()) return request();
+          return response;
+        })
+        .then(async (response) => {
+          const payload = await response.json();
+          if (!response.ok) {
+            const message = response.status === 401
+              ? 'Your session has expired. Please sign in again to load dashboard features.'
+              : payload.error?.message || 'Unable to load dashboard features.';
+            throw new Error(message);
+          }
+          return payload;
+        })
+        .then((payload) => {
+          if (!active || !payload.data?.features) return;
+          setDashboardFeatures({ sales_reports: true, debt_collection: true, ...payload.data.features });
+          if (payload.data.roles) setDashboardRoleFeatures({
+            EMPLOYEE: { sales_reports: true, debt_collection: true, ...(payload.data.roles.EMPLOYEE || {}) },
+            MANAGER: { sales_reports: true, debt_collection: true, ...(payload.data.roles.MANAGER || {}) },
+            HR_ADMIN: { sales_reports: true, debt_collection: true, ...(payload.data.roles.HR_ADMIN || {}) },
+            SYSTEM_ADMIN: { sales_reports: true, debt_collection: true, ...(payload.data.roles.SYSTEM_ADMIN || {}) },
+            SUPER_ADMIN: { sales_reports: true, debt_collection: true, ...(payload.data.roles.SUPER_ADMIN || {}) },
+          });
+        })
+        .catch((error) => {
+          if (active) setMessage({ type: 'error', text: error.message || 'Unable to load dashboard features.' });
+        });
+    };
+    refreshFeatures();
+    window.addEventListener('focus', refreshFeatures);
+    window.addEventListener('dashboard-feature-access-denied', refreshFeatures);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshFeatures);
+      window.removeEventListener('dashboard-feature-access-denied', refreshFeatures);
+    };
+  }, []);
 
   const createDepartment = async (event) => {
     event.preventDefault();
@@ -414,13 +516,35 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     }
   };
 
+  const updateUserDuty = async (userId, duty, enabled) => {
+    const duties = new Set(userDuties[userId] || []);
+    if (enabled) duties.add(duty);
+    else duties.delete(duty);
+    try {
+      const response = await fetch(apiUrl(`/api/admin/users/${userId}/duties`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ duties: [...duties] }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message || 'Unable to update employee duties.');
+      setUserDuties((current) => ({ ...current, [userId]: payload.data.duties }));
+      setMessage({ type: 'success', text: `Employee duties updated for ${adminUsers.find((user) => user.id === userId)?.full_name || 'employee'}.` });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    }
+  };
+
   const startAdminUserEdit = (user) => {
     const sanitizedRole = sanitizeAdminRoleAssignment(user.role, user.is_superuser).role;
     setEditingAdminUserId(user.id);
     setAdminUserForm({
-      full_name: user.full_name || '', email: user.email || '', phone_number: user.phone_number || '',
+      full_name: user.full_name || '', email: user.email || '',
+      personal_email: user.personal_email || user.contact?.email || user.email || '',
+      phone_number: user.phone_number || '',
       department: user.department || user.department_details?.name || '', job_position_title: user.job_position_title || '',
       employer: user.employer || '', role: sanitizedRole, is_superuser: false,
+      status: user.account_status === 'pending' ? 'pending' : (user.state || (user.is_active ? 'active' : 'deactivated')),
     });
   };
 
@@ -743,7 +867,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   };
 
   return (
-    <AppShell currentUser={{ ...currentUser, unread_chat_count: unreadChatCount }} canApprove={canApprove} onOpenChat={() => setShowChat(true)} onOpenProfile={openProfile} onNavigate={navigateToSection} activeSection={activeSection} onLogout={handleLogout}>
+    <AppShell currentUser={{ ...currentUser, unread_chat_count: unreadChatCount, dashboard_features: dashboardFeatures }} canApprove={canApprove} onOpenChat={() => setShowChat(true)} onOpenProfile={openProfile} onNavigate={navigateToSection} activeSection={activeSection} onLogout={handleLogout}>
       <main className="leave-main">
         <header className="leave-header">
           <div>
@@ -754,26 +878,22 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           <div className="leave-header-actions"><button className="leave-primary-button leave-apply-button" onClick={() => setShowRequestForm(true)}>Apply for leave</button></div>
         </header>
 
+        {isSuperAdmin && (
+          <div className="admin-stat-grid">
+            <div className="leave-stat-card accent-blue"><span>Total users</span><strong>{adminUsers.length}</strong><small>people in the system</small></div>
+            <div className="leave-stat-card accent-teal"><span>Active users</span><strong>{adminHealth.active_users || 0}</strong><small>currently active</small></div>
+            <div className="leave-stat-card accent-amber"><span>Pending users</span><strong>{adminHealth.pending_users || 0}</strong><small>awaiting approval</small></div>
+          </div>
+        )}
+
         {message && <div className={`leave-alert ${message.type}`} role="status">{message.text}</div>}
-        {canAccessSalesReports && !isSuperAdmin && <SalesV2DashboardWidgets currentUser={currentUser} onViewReport={() => openSalesReports('sales-reports')} onOpenWorkspace={() => openSalesReports('sales-reports')} onViewDetail={() => openSalesReports('sales-reports')} />}
+        {canAccessSalesReports && <SalesV2DashboardWidgets currentUser={currentUser} onViewReport={() => openSalesReports('sales-reports')} onOpenWorkspace={() => openSalesReports('sales-reports')} onViewDetail={() => openSalesReports('sales-reports')} />}
+        {canAccessDebtCollection && isSuperAdmin && activeSection === 'dashboard' && <DebtCollectionPage compact />}
         {unreadChatCount > 0 && <div className="leave-alert info chat-notification" role="status"><strong>New message{unreadChatCount === 1 ? '' : 's'} waiting.</strong><button type="button" className="leave-text-button" onClick={() => setShowChat(true)}>Open chat ({unreadChatCount})</button></div>}
         {isSuperAdmin && <TeamCalendarSection calendarDate={calendarDate} calendarDays={calendarDays} calendarOffset={calendarOffset} calendarRequestsForDay={calendarRequestsForDay} selectedCalendarDate={selectedCalendarDate} setSelectedCalendarDate={setSelectedCalendarDate} selectedCalendarEvents={selectedCalendarEvents} setCalendarMonth={setCalendarMonth} openRequestView={openRequestView} leaveTypeName={leaveTypeName} formatDate={formatDate} workflowLabel={workflowLabel} currentUser={currentUser} />}
 
         {isSuperAdmin && (
           <section className="super-admin-panel" id="dashboard" aria-label="System administration">
-            <div className="leave-section-heading">
-              <div>
-                <p className="leave-kicker">SUPER ADMIN</p>
-                <h2>Okoa Float Portal</h2>
-              </div>
-            </div>
-
-            <div className="admin-stat-grid">
-              <div className="leave-stat-card accent-blue"><span>Total users</span><strong>{adminUsers.length}</strong><small>people in the system</small></div>
-              <div className="leave-stat-card accent-teal"><span>Active users</span><strong>{adminHealth.active_users || 0}</strong><small>currently active</small></div>
-              <div className="leave-stat-card accent-amber"><span>Pending users</span><strong>{adminHealth.pending_users || 0}</strong><small>awaiting approval</small></div>
-            </div>
-
             <section className="admin-card" id="pending-leave-approvals">
               <div className="leave-section-heading"><div><p className="leave-kicker">LEAVE WORKFLOW</p><h3>Pending Leave Approvals</h3><p className="leave-muted">Review every pending leave request across the organization.</p></div><span className="section-meta">{pendingRequests.length} pending</span></div>
               <div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No pending leave approvals.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`super-pending-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div>
@@ -922,14 +1042,52 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
               </div>
             </div>
             {canAccessSalesReports && <SalesReportsPage reports={salesReports} canEdit={canApprove || isSuperAdmin} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
+        {canAccessDebtCollection && activeSection === 'debt-collection' && <DebtCollectionPage />}
           </section>
         )}
 
-        {canApprove && <ManagedUsersPanel users={adminUsers} departments={adminDepartments} currentUser={currentUser} isSuperAdmin={false} canCreateEmployee={currentUser.role === 'manager'} focusCreate={activeSection === 'create-employee'} onRefresh={loadSuperAdminData} onMessage={(text, type = 'success') => setMessage({ type, text })} />}
+        {(isSuperAdmin || role === 'system_admin') && (
+          <section className="admin-card dashboard-feature-settings" id="dashboard-feature-access" aria-label="Dashboard feature settings">
+            <div className="leave-section-heading">
+              <div><p className="leave-kicker">SYSTEM SETTINGS</p><h2>Dashboard feature access</h2></div>
+            </div>
+            <div className="dashboard-feature-list">
+              {Object.keys(dashboardRoleFeatures).map((roleName) => (
+                <div className="dashboard-feature-row" key={roleName}>
+                  <span>{roleName.replace('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</span>
+                  <div className="dashboard-feature-toggle-group">
+                    <label className="dashboard-feature-control">
+                      <input
+                        type="checkbox"
+                        checked={dashboardRoleFeatures[roleName]?.sales_reports !== false}
+                        onChange={(event) => updateDashboardRoleFeature(roleName, 'sales_reports', event.target.checked)}
+                        aria-label={`Sales Reports for ${roleName.replace('_', ' ').toLowerCase()}`}
+                      />
+                      <span>Sales Reports</span>
+                      <strong>{dashboardRoleFeatures[roleName]?.sales_reports === false ? 'Disabled' : 'Enabled'}</strong>
+                    </label>
+                    <label className="dashboard-feature-control">
+                      <input
+                        type="checkbox"
+                        checked={dashboardRoleFeatures[roleName]?.debt_collection !== false}
+                        onChange={(event) => updateDashboardRoleFeature(roleName, 'debt_collection', event.target.checked)}
+                        aria-label={`Debt Collection for ${roleName.replace('_', ' ').toLowerCase()}`}
+                      />
+                      <span>Debt Collection</span>
+                      <strong>{dashboardRoleFeatures[roleName]?.debt_collection === false ? 'Disabled' : 'Enabled'}</strong>
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {canApprove && <ManagedUsersPanel users={adminUsers} departments={adminDepartments} currentUser={currentUser} isSuperAdmin={isSuperAdmin} canCreateEmployee={currentUser.role === 'manager'} focusCreate={activeSection === 'create-employee'} onRefresh={loadSuperAdminData} onMessage={(text, type = 'success') => setMessage({ type, text })} />}
         {false && isHr && <HrOperationsPanel leaveTypes={adminLeaveTypes} departments={adminDepartments} audit={adminAudit} />}
         {false && isHr && <HrModulePanel employees={adminUsers} departments={adminDepartments} isSuperAdmin={isSuperAdmin} onRefresh={loadSuperAdminData} />}
 
-        {!isSuperAdmin && (activeSection === 'sales-reports' && canAccessSalesReports ? <SalesReportsPage reports={salesReports} canEdit={canApprove || isSuperAdmin} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} /> : (loading ? <div className="leave-loading">Loading your leave information...</div> : (
+        {!isSuperAdmin && (activeSection === 'sales-reports' && canAccessSalesReports ? <SalesReportsPage reports={salesReports} canEdit={canApprove || isSuperAdmin} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} /> : activeSection === 'debt-collection' && canAccessDebtCollection ? <DebtCollectionPage /> : (loading ? <div className="leave-loading">Loading your leave information...</div> : (
           <>
             <section className="leave-stat-grid" id="overview" aria-label="Leave summary">
               <div className="leave-stat-card accent-blue"><span>Available days</span><strong>{availableDays}</strong><small>Across all leave types</small></div>
@@ -937,21 +1095,22 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
               <div className="leave-stat-card accent-amber"><span>Pending requests</span><strong>{pendingCount}</strong><small>Awaiting a decision</small></div>
             </section>
 
-            {isSalesEmployee && <SalesDailyReportForm onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
+            {isSalesEmployee && canAccessSalesReports && <SalesDailyReportForm onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
             {canAccessSalesReports && <SalesReportsPanel reports={salesReports} />}
+            {canAccessDebtCollection && <DebtCollectionPage compact />}
 
             {canApprove && <>
               <section className="leave-section admin-feature-section" id="team-calendar">
                 <div className="leave-section-heading"><div><p className="leave-kicker">TEAM PLANNING</p><h2>Team calendar</h2></div><div className="calendar-controls"><button type="button" className="leave-secondary-button" onClick={() => setCalendarMonth(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))} aria-label="Previous month">←</button><span className="section-meta">{calendarDate.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</span><button type="button" className="leave-secondary-button" onClick={() => setCalendarMonth(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))} aria-label="Next month">→</button><button type="button" className="leave-text-button" onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>Today</button></div></div>
-                <div className="calendar-grid">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <strong key={day}>{day}</strong>)}{Array.from({ length: calendarOffset }).map((_, index) => <span className="calendar-empty" key={`offset-${index}`} />)}{calendarDays.map((day) => { const events = calendarRequestsForDay(day); const selected = selectedCalendarDate === day; return <button type="button" className={`calendar-day ${events.length ? 'has-events' : ''} ${selected ? 'is-selected' : ''}`} key={day} onClick={() => setSelectedCalendarDate(selected ? null : day)}><span>{day}</span>{events.slice(0, 2).map((event) => <small key={event.id}>{event.requester_name || currentUser.name} · {leaveTypeName(event)}</small>)}{events.length > 2 && <em>+{events.length - 2} more</em>}</button>; })}</div>
-                {selectedCalendarDate && <div className="calendar-selection"><strong>{calendarDate.toLocaleString(undefined, { month: 'long' })} {selectedCalendarDate}</strong>{selectedCalendarEvents.length === 0 ? <span>No leave scheduled.</span> : selectedCalendarEvents.map((event) => <button type="button" className="calendar-event-detail" key={event.id} onClick={() => openRequestView(event, 'request')}><span>{event.requester_name || currentUser.name}</span><small>{leaveTypeName(event)} · {formatDate(event.start_date)} - {formatDate(event.end_date)} · {workflowLabel(event)}</small></button>)}</div>}
+                <div className="calendar-grid">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <strong key={day}>{day}</strong>)}{Array.from({ length: calendarOffset }).map((_, index) => <span className="calendar-empty" key={`offset-${index}`} />)}{calendarDays.map((day) => { const events = calendarRequestsForDay(day); const selected = selectedCalendarDate === day; return <button type="button" className={`calendar-day ${events.length ? 'has-events' : ''} ${selected ? 'is-selected' : ''}`} key={day} onClick={() => setSelectedCalendarDate(selected ? null : day)}><span>{day}</span>{events.slice(0, 2).map((event) => <small key={event.id}>{event.requester_name || currentUser.name} · {event.department_name || 'Unassigned'} · {leaveTypeName(event)}</small>)}{events.length > 2 && <em>+{events.length - 2} more</em>}</button>; })}</div>
+                {selectedCalendarDate && <div className="calendar-selection"><strong>{calendarDate.toLocaleString(undefined, { month: 'long' })} {selectedCalendarDate}</strong>{selectedCalendarEvents.length === 0 ? <span>No leave scheduled.</span> : selectedCalendarEvents.map((event) => <button type="button" className="calendar-event-detail" key={event.id} onClick={() => openRequestView(event, 'request')}><span>{event.requester_name || currentUser.name}</span><small>{event.department_name || 'Unassigned'} · {leaveTypeName(event)} · {formatDate(event.start_date)} - {formatDate(event.end_date)} · {workflowLabel(event)}</small></button>)}</div>}
               </section>
               <section className="leave-section admin-feature-section" id="reports">
                 <div className="leave-section-heading"><div><p className="leave-kicker">OPERATIONS INSIGHT</p><h2>Leave reports</h2><p className="leave-muted">Filter, inspect, and export leave activity.</p></div><div className="report-actions"><button type="button" className="leave-secondary-button action-export" onClick={exportReport}>Export CSV</button></div></div>
                 <div className="report-card-grid"><div className="report-card"><span>Matching requests</span><strong>{reportFilteredRequests.length}</strong></div><div className="report-card"><span>Approved</span><strong>{reportApproved}</strong></div><div className="report-card"><span>Rejected</span><strong>{reportRejected}</strong></div><div className="report-card"><span>Days requested</span><strong>{reportFilteredRequests.reduce((sum, request) => sum + Number(request.days_requested || 0), 0)}</strong></div></div>
                 <div className="report-filter-bar"><label>From<input type="date" value={reportFilters.from} onChange={(event) => setReportFilters({ ...reportFilters, from: event.target.value })} /></label><label>To<input type="date" value={reportFilters.to} onChange={(event) => setReportFilters({ ...reportFilters, to: event.target.value })} /></label><label>Employee<input placeholder="Search name" value={reportFilters.user} onChange={(event) => setReportFilters({ ...reportFilters, user: event.target.value })} /></label><label>Status<select value={reportFilters.status} onChange={(event) => setReportFilters({ ...reportFilters, status: event.target.value })}><option value="">All statuses</option><option value="handover_pending">Waiting for delegate</option><option value="supervisor_pending">Waiting for manager</option><option value="hr_verification">Waiting for HR</option><option value="approved">Approved</option><option value="completed">Completed</option><option value="rejected">Rejected</option><option value="deferred">Deferred</option></select></label><label>Leave type<select value={reportFilters.leaveType} onChange={(event) => setReportFilters({ ...reportFilters, leaveType: event.target.value })}><option value="">All leave types</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><label>Region<input placeholder="City or country" value={reportFilters.region} onChange={(event) => setReportFilters({ ...reportFilters, region: event.target.value })} /></label><button type="button" className="leave-text-button" onClick={() => setReportFilters({ from: '', to: '', user: '', status: '', leaveType: '', region: '' })}>Clear</button></div>
                 <div className="report-view-tabs"><button type="button" className={reportMode === 'summary' ? 'is-active' : ''} onClick={() => setReportMode('summary')}>By leave type</button><button type="button" className={reportMode === 'details' ? 'is-active' : ''} onClick={() => setReportMode('details')}>Request details</button></div>
-                <div className="leave-table-wrap compact-table"><table className="leave-table"><thead><tr>{reportMode === 'summary' ? <><th>Leave type</th><th>Requests</th><th>Days requested</th></> : <><th>Employee</th><th>Leave type</th><th>Dates</th><th>Region</th><th>Status</th></>}</tr></thead><tbody>{reportMode === 'summary' ? overview.types.map((type) => { const requests = reportFilteredRequests.filter((request) => request.leave_type_id === type.id); return <tr key={type.id}><td>{type.name}</td><td>{requests.length}</td><td>{requests.reduce((sum, request) => sum + Number(request.days_requested || 0), 0)}</td></tr>; }) : reportFilteredRequests.map((request) => <tr key={`report-${request.id}`}><td>{request.requester_name || request.user_name || 'Employee'}</td><td>{leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{[request.city, request.country].filter(Boolean).join(', ') || '-'}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td></tr>)}</tbody></table></div>
+                <div className="leave-table-wrap compact-table"><table className="leave-table"><thead><tr>{reportMode === 'summary' ? <><th>Leave type</th><th>Requests</th><th>Days requested</th></> : <><th>Employee</th><th>Department</th><th>Leave type</th><th>Dates</th><th>Region</th><th>Status</th></>}</tr></thead><tbody>{reportMode === 'summary' ? overview.types.map((type) => { const requests = reportFilteredRequests.filter((request) => request.leave_type_id === type.id); return <tr key={type.id}><td>{type.name}</td><td>{requests.length}</td><td>{requests.reduce((sum, request) => sum + Number(request.days_requested || 0), 0)}</td></tr>; }) : reportFilteredRequests.map((request) => <tr key={`report-${request.id}`}><td>{request.requester_name || request.user_name || 'Employee'}</td><td>{request.department_name || 'Unassigned'}</td><td>{leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{[request.city, request.country].filter(Boolean).join(', ') || '-'}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td></tr>)}</tbody></table></div>
               </section>
               <section className="leave-section admin-feature-section" id="compliance">
                 <div className="leave-section-heading"><div><p className="leave-kicker">CONTROL CHECKS</p><h2>Compliance</h2></div></div>
@@ -994,20 +1153,21 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
               <label className="checkbox-row"><input type="checkbox" checked={emailNotifications} onChange={(event) => { setEmailNotifications(event.target.checked); window.sessionStorage.setItem('okoa_email_notifications', String(event.target.checked)); }} /> Receive leave and handover notifications</label>
             </section>
 
-            <section className="leave-section" id="delegations"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover report</h2><p className="leave-muted">Leave handovers assigned to you by colleagues.</p></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <div className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)} · {request.days_requested} days</strong><p>{request.handover_statement ? `Current status: ${request.handover_statement}` : 'Briefing: pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View Request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>View Chat</button></div></div>{request.handover_statement && !request.handover_statement.startsWith('DECLINED:') ? <><p className="leave-muted">This handover has been actioned.</p><HandoverReportForm requestId={request.id} readOnly /></> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</div>)}</section>
-            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={isHr && !isSuperAdmin && request.workflow_state === 'handover_pending'} waitingForManager={isHr && !isSuperAdmin && request.workflow_state === 'supervisor_pending'} onView={openRequestView} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
+            <section className="leave-section" id="delegations"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover report</h2><p className="leave-muted">Leave handovers assigned to you by colleagues.</p></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <div className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)} · {request.days_requested} days</strong><p>{request.handover_statement ? `Current status: ${request.handover_statement}` : 'Briefing: pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View Request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>Chat requester</button></div></div>{request.handover_statement && !request.handover_statement.startsWith('DECLINED:') ? <><p className="leave-muted">This handover has been actioned.</p><HandoverReportForm requestId={request.id} readOnly /></> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</div>)}</section>
+            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={isHr && !isSuperAdmin && request.workflow_state === 'handover_pending'} waitingForManager={isHr && !isSuperAdmin && request.workflow_state === 'supervisor_pending'} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
 
             {isSuperAdmin && (
               <>
                 <section className="leave-section" id="user-management">
                   <div className="leave-section-heading"><div><p className="leave-kicker">AUTHORITY</p><h2>User management</h2></div></div>
+                  {canAssignEmployeeDuties && <label className="user-duty-search">Find employee<input type="search" value={userDutySearch} onChange={(event) => setUserDutySearch(event.target.value)} placeholder="Name, email or employee ID" /></label>}
                   <div className="leave-table-wrap">
                     <table className="leave-table">
                       <thead>
-                        <tr><th>Name</th><th>Role and privileges</th><th>Status</th><th>Phone</th><th>Department</th><th>Actions</th></tr>
+                        <tr><th>Name</th><th>Account role</th><th>Assigned duties</th><th>Status</th><th>Phone</th><th>Department</th><th>Actions</th></tr>
                       </thead>
                       <tbody>
-                        {adminUsers.map((user) => (
+                        {filteredDutyUsers.map((user) => (
                           <tr key={user.id}>
                             <td>{user.full_name}</td>
                             <td>
@@ -1017,7 +1177,16 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                                 <option value="hr_admin">HR Admin</option>
                               </select>
                             </td>
-                            <td><select value={user.state || (user.is_active ? 'active' : 'deactivated')} onChange={(event) => updateAdminUserStatus(user.id, event.target.value)} disabled={user.id === currentUser.id}><option value="active">Active</option><option value="deactivated">Deactivated</option><option value="archived">Archived</option></select></td>
+                            <td>
+                              {canAssignEmployeeDuties ? (
+                                <div className="employee-duty-toggles">
+                                  <label className="role-toggle"><input type="checkbox" checked={(userDuties[user.id] || []).includes('departmental_manager')} onChange={(event) => updateUserDuty(user.id, 'departmental_manager', event.target.checked)} /> Departmental Manager</label>
+                                  <label className="role-toggle"><input type="checkbox" checked={(userDuties[user.id] || []).includes('sales_marketing_executive')} onChange={(event) => updateUserDuty(user.id, 'sales_marketing_executive', event.target.checked)} /> Sales and Marketing Executive</label>
+                                  <label className="role-toggle"><input type="checkbox" checked={(userDuties[user.id] || []).includes('debt_collector_agent')} onChange={(event) => updateUserDuty(user.id, 'debt_collector_agent', event.target.checked)} /> Debt Collector Agent</label>
+                                </div>
+                              ) : (userDuties[user.id] || []).join(', ') || 'No assigned duties'}
+                            </td>
+                            <td><span className="user-status-redacted" aria-label="Status hidden"><span aria-hidden="true">{user.account_status === 'pending' ? 'Pending approval' : (user.state || (user.is_active ? 'active' : 'deactivated'))}</span></span></td>
                             <td>{user.phone_number}</td>
                             <td>{user.department || 'General'}</td>
                             <td>
@@ -1032,6 +1201,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                             </td>
                           </tr>
                         ))}
+                        {filteredDutyUsers.length === 0 && <tr><td colSpan="7">No employees match this search.</td></tr>}
                       </tbody>
                     </table>
                   </div>

@@ -83,6 +83,62 @@ Default credentials:
 
 # Okoa Float API Reference
 
+## Email OTP authentication and recovery
+
+Registration and administrator-created users require both a work email and a
+personal email. Email addresses are normalized by trimming whitespace and
+lowercasing and there is no email-provider/domain allowlist. Login, registration
+verification, password reset, and forgotten-phone recovery codes are sent to
+both addresses (once if both are the same). During OTP verification, either
+registered address is accepted. Codes expire after two hours.
+
+Login remains phone-and-password based. Send
+`POST /api/auth/verify-otp` with `phone_number`, `email`, and `otp`.
+Registration verification uses `POST /api/auth/verify-registration` with the
+same fields. Password recovery uses `POST /api/auth/request-password-reset`
+with either `email` or `phone_number`; finish with `POST /api/auth/reset-password`
+and `email`, `otp`, and `new_password`; the email can be the work or personal
+address. Forgotten phone recovery uses
+`POST /api/auth/request-phone-recovery` with `email`, followed by
+`POST /api/auth/recover-phone` with `email` and `otp`.
+
+### Gmail SMTP setup
+
+For Gmail, enable 2-Step Verification on the sending Google account and create
+a Google App Password for this application. Do not use the regular Google
+password or enable "less secure app access." If App Passwords are unavailable
+for the account, use an SMTP provider or relay that supports authenticated
+STARTTLS instead.
+
+Edit `backend/.env` and configure the sender account (never commit this file):
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=your-google-app-password
+SMTP_FROM_EMAIL=you@gmail.com
+SMTP_USE_TLS=true
+SMTP_USE_SSL=false
+```
+
+Use the full Gmail address for `SMTP_USERNAME` and `SMTP_FROM_EMAIL`. Paste
+the App Password as provided by Google, removing display-only spaces. Restart
+the Flask process after changing `.env`. This sends OTPs to the user's saved
+work and personal email addresses; Gmail is the sender, and recipients may use
+Gmail or another valid email provider.
+
+For other SMTP services, replace the host, port, and credentials with the
+provider's settings. `SMTP_USE_TLS=true` enables STARTTLS; use
+`SMTP_USE_SSL=true` only for providers requiring implicit TLS. Authenticated
+SMTP requires both `SMTP_USERNAME` and `SMTP_PASSWORD`. If required settings
+are missing or sending fails, OTP creation returns an explicit 503 error rather
+than reporting success. Apply migration `0023_email_otp_delivery` before
+deploying this version. Apply migrations through
+`0025_dev_plaintext_otp` before deploying. Plaintext OTP storage and development
+console logging are enabled only when explicitly configured in debug/testing
+mode; production always stores only the OTP hash and never logs the code.
+
 Base URL: `http://localhost:5000`
 
 Unless marked **public**, send `Authorization: Bearer <access-token>`. JSON
@@ -102,23 +158,19 @@ object containing `code` and `message`.
 
 | Method | Endpoint | Function |
 |---|---|---|
-| POST | `/api/auth/login` | Email/password login and token issuance. |
-| POST | `/api/auth/phone-login` | Start phone OTP login. Development mode returns the OTP in the server log, never the challenge identifier. |
-| POST | `/api/auth/verify-otp` | Verify a login OTP and issue an access/refresh session. |
-| POST | `/api/auth/register` | Create a pending employee account and registration OTP. |
-| POST | `/api/auth/verify-registration` | Verify registration OTP and activate the registration flow. |
-| POST | `/api/auth/request-password-reset` | Start password reset OTP. |
-| POST | `/api/auth/reset-password` | Verify reset OTP and set a new password. |
+| POST | `/api/auth/login` | Validate phone/password and request a login OTP. |
+| POST | `/api/auth/phone-login` | Alias for phone/password login and OTP request. |
+| POST | `/api/auth/verify-otp` | Verify the login OTP and issue an access/refresh session. |
+| POST | `/api/auth/register` | Create a pending employee account and request a registration OTP. |
+| POST | `/api/auth/verify-registration` | Verify the registration OTP; the account remains pending approval. |
+| POST | `/api/auth/request-password-reset` | Request a password-reset OTP. |
+| POST | `/api/auth/reset-password` | Verify the OTP and set a new password. |
 | POST | `/api/auth/refresh` | Exchange a valid refresh token for a new access token. |
 | POST | `/api/auth/logout` | Revoke the refresh token. |
 | GET | `/api/auth/me` | Read the authenticated user profile. |
 | PATCH | `/api/auth/me` | Update the authenticated user profile. |
 | POST | `/api/auth/me/photo` | Upload a profile photo. |
 | DELETE | `/api/auth/me/photo` | Remove the profile photo. |
-
-The `challenge_id` is an opaque client/API value used internally to match an
-OTP verification request. It is not a secret explanation or user-facing key,
-and it is intentionally excluded from backend console logging.
 
 ## Administration
 
@@ -241,5 +293,5 @@ curl "http://localhost:5000/api/sales/v2/performance/team?scope=team&from=2026-0
 
 - Dates use `YYYY-MM-DD`.
 - Phone numbers are normalized server-side to Kenyan E.164 format.
-- Do not print access tokens, refresh tokens, OTP challenge identifiers, or passwords in logs.
+- Do not print access tokens, refresh tokens, or passwords in logs.
 - Use `GET /health` for a lightweight dependency check.

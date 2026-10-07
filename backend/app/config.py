@@ -33,6 +33,16 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
     JWT_TOKEN_LOCATION = ['headers']
+
+    # SMTP settings are deliberately optional at startup. OTP requests fail
+    # explicitly until the mail transport and sender address are configured.
+    SMTP_HOST = os.environ.get("SMTP_HOST")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+    SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+    SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() == "true"
     
     # CORS settings
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*')
@@ -45,10 +55,7 @@ class Config:
 class DevelopmentConfig(Config):
     """Development environment configuration."""
     DEBUG = True
-    # Keep the terminal readable; enable explicitly with SQLALCHEMY_ECHO=true.
     SQLALCHEMY_ECHO = os.environ.get("SQLALCHEMY_ECHO", "false").lower() == "true"
-    # Development-only convenience: print OTPs to the server console.
-    # ProductionConfig does not enable this setting.
     STORE_PLAINTEXT_OTP = os.environ.get("STORE_PLAINTEXT_OTP", "true").lower() == "true"
 
 
@@ -56,6 +63,7 @@ class ProductionConfig(Config):
     """Production environment configuration."""
     DEBUG = False
     SQLALCHEMY_ECHO = False
+    STORE_PLAINTEXT_OTP = False
 
     @classmethod
     def validate(cls):
@@ -73,6 +81,7 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing environment configuration."""
     TESTING = True
+    STORE_PLAINTEXT_OTP = True
 
 
 # Configuration mapping

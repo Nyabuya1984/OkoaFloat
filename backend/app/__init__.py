@@ -52,11 +52,14 @@ def create_app(config_name='default'):
     from app.api.chat import chat_bp
     from app.api.admin import admin_bp
     from app.api.sales import sales_bp
+    from app.api.debt_collection import collector_bp, debt_collection_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(leave_bp, url_prefix='/api/leave')
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(admin_bp)
     app.register_blueprint(sales_bp)
+    app.register_blueprint(debt_collection_bp)
+    app.register_blueprint(collector_bp)
     
     @app.route('/favicon.ico')
     def favicon():
@@ -92,9 +95,6 @@ def create_app(config_name='default'):
             role_def = db.session.execute(text("SHOW COLUMNS FROM users LIKE 'role'" )).fetchone()
             if role_def and str(role_def[1]).lower().startswith('enum'):
                 db.session.execute(text("ALTER TABLE users MODIFY COLUMN role VARCHAR(32) NOT NULL DEFAULT 'EMPLOYEE'"))
-            otp_columns = db.session.execute(text("SHOW COLUMNS FROM `OTP`"))
-            if not any(row[0] == 'status' for row in otp_columns):
-                db.session.execute(text("ALTER TABLE `OTP` ADD COLUMN status ENUM('active','expired','verified') NOT NULL DEFAULT 'active'"))
             db.session.commit()
         except Exception as exc:
             db.session.rollback()

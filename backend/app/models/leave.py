@@ -23,9 +23,10 @@ class User(db.Model):
     job_position_title = db.Column(db.String(120), nullable=True)
     employer = db.Column(db.String(120), nullable=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
+    personal_email = db.Column(db.String(255), nullable=True)
     phone_number = db.Column(db.String(20), unique=True, nullable=True)
     contact_phone = db.Column(db.String(30), nullable=True)
-    contact_email = db.Column(db.String(120), nullable=True)
+    contact_email = db.Column(db.String(255), nullable=True)
     profile_photo_url = db.Column(db.String(500), nullable=True)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=True)
     address_line1 = db.Column(db.String(200), nullable=True)
@@ -118,6 +119,7 @@ class User(db.Model):
             "job_position_title": self.job_position_title,
             "employer": self.employer,
             "email": self.email,
+            "personal_email": self.personal_email or self.email,
             "phone_number": self.phone_number,
             "profile_photo_url": self.profile_photo_url,
             "department_id": self.department_id,
@@ -127,7 +129,7 @@ class User(db.Model):
             ),
             "contact": {
                 "phone": self.contact_phone or self.phone_number,
-                "email": self.contact_email or self.email,
+                "email": self.personal_email or self.contact_email or self.email,
                 "address_line1": self.address_line1,
                 "address_line2": self.address_line2,
                 "city": self.city,
