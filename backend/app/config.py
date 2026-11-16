@@ -33,16 +33,19 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
     JWT_TOKEN_LOCATION = ['headers']
+    TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0"))
+    ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
+    TIMEZONE = os.environ.get("TIMEZONE", "Africa/Nairobi")
 
-    # SMTP settings are deliberately optional at startup. OTP requests fail
-    # explicitly until the mail transport and sender address are configured.
-    SMTP_HOST = os.environ.get("SMTP_HOST")
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
-    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-    SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
-    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
-    SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() == "true"
+    OTP_STORE_PLAINTEXT = False
+
+    # SMS API Settings (Onfon Media)
+    SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").lower() in ("true", "1", "yes")
+    ONFON_SMS_URL = os.environ.get("ONFON_SMS_URL", "https://api.onfonmedia.com/v1/sms/SendBulkSMS")
+    ONFON_ACCESS_KEY = os.environ.get("ONFON_ACCESS_KEY")
+    ONFON_API_KEY = os.environ.get("ONFON_API_KEY")
+    ONFON_CLIENT_ID = os.environ.get("ONFON_CLIENT_ID")
+    ONFON_SENDER_ID = os.environ.get("ONFON_SENDER_ID") or "OkoaFloat"
     
     # CORS settings
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*')
@@ -55,15 +58,14 @@ class Config:
 class DevelopmentConfig(Config):
     """Development environment configuration."""
     DEBUG = True
+    OTP_STORE_PLAINTEXT = True
     SQLALCHEMY_ECHO = os.environ.get("SQLALCHEMY_ECHO", "false").lower() == "true"
-    STORE_PLAINTEXT_OTP = os.environ.get("STORE_PLAINTEXT_OTP", "true").lower() == "true"
 
 
 class ProductionConfig(Config):
     """Production environment configuration."""
     DEBUG = False
     SQLALCHEMY_ECHO = False
-    STORE_PLAINTEXT_OTP = False
 
     @classmethod
     def validate(cls):
@@ -81,7 +83,9 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing environment configuration."""
     TESTING = True
-    STORE_PLAINTEXT_OTP = True
+    SMS_ENABLED = False
+    OTP_STORE_PLAINTEXT = True
+    RATELIMIT_ENABLED = False
 
 
 # Configuration mapping

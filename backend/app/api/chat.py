@@ -12,12 +12,22 @@ chat_bp = Blueprint("chat", __name__)
 
 
 def _user():
-    user = db.session.get(User, int(get_jwt_identity()))
-    return user if user and user.is_active else None
+    try:
+        user_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return None
+    user = db.session.get(User, user_id)
+    if not user or not user.is_currently_active() or user.account_status != "approved":
+        return None
+    return user
 
 
 def _can_access_peer(user, peer):
-    return peer and (not is_super_admin(peer) or is_super_admin(user))
+    if not peer or peer.id == user.id:
+        return False
+    if not peer.is_currently_active() or peer.account_status != "approved":
+        return False
+    return not is_super_admin(peer) or is_super_admin(user)
 
 
 def _message_dict(message):
@@ -40,10 +50,30 @@ def users():
     peers = User.query.filter(
         User.id != user.id,
         User.is_active.is_(True),
-        User.is_superuser.is_(False) if not is_super_admin(user) else True,
-        User.role != "SUPER_ADMIN" if not is_super_admin(user) else True,
-    ).order_by(User.full_name.asc()).all()
-    return jsonify({"data": [{"id": peer.id, "name": peer.full_name, "role": peer.role} for peer in peers]})
+        User.is_archived.is_(False),
+        User.is_deleted.is_(False),
+        User.account_status == "approved",
+    )
+    if not is_super_admin(user):
+        peers = peers.filter(User.is_superuser.is_(False), User.role != "SUPER_ADMIN")
+    peers = peers.order_by(User.full_name.asc()).all()
+    return jsonify({
+        "data": [
+            {
+                "id": peer.id,
+                "name": peer.full_name,
+                "role": peer.role,
+                "department": peer.department,
+                "department_name": (
+                    peer.department_record.name
+                    if peer.department_record
+                    else peer.department
+                ),
+                "department_id": peer.department_id,
+            }
+            for peer in peers
+        ]
+    })
 
 
 @chat_bp.get("/messages/<int:peer_id>")
@@ -51,7 +81,7 @@ def users():
 def messages(peer_id):
     user = _user()
     peer = db.session.get(User, peer_id)
-    if not user or not _can_access_peer(user, peer) or not peer.is_active:
+    if not user or not _can_access_peer(user, peer):
         return jsonify({"error": "User not found"}), 404
     rows = ChatMessage.query.filter(
         ((ChatMessage.sender_id == user.id) & (ChatMessage.recipient_id == peer.id))
@@ -75,7 +105,7 @@ def unread_count():
 def mark_messages_read(peer_id):
     user = _user()
     peer = db.session.get(User, peer_id)
-    if not user or not _can_access_peer(user, peer) or not peer.is_active:
+    if not user or not _can_access_peer(user, peer):
         return jsonify({"error": "User not found"}), 404
     ChatMessage.query.filter_by(sender_id=peer.id, recipient_id=user.id, read_at=None).update(
         {"read_at": datetime.utcnow()}, synchronize_session=False
@@ -91,7 +121,7 @@ def send_message():
     payload = request.get_json(silent=True) or {}
     peer = db.session.get(User, payload.get("recipient_id"))
     body = (payload.get("body") or "").strip()
-    if not user or not _can_access_peer(user, peer) or not peer.is_active:
+    if not user or not _can_access_peer(user, peer):
         return jsonify({"error": "Recipient not found"}), 404
     if not body or len(body) > 2000:
         return jsonify({"error": "Message must contain 1 to 2000 characters"}), 400

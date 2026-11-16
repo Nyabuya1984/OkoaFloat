@@ -6,6 +6,9 @@ from app.extensions import db
 
 DUTY_ROLES = {
     "departmental_manager",
+    "department_manager",
+    "group_leader",
+    "team_leader",
     "sales_marketing_executive",
     "debt_collector_agent",
 }
@@ -61,11 +64,13 @@ class DebtCollectionLoan(db.Model):
     debtor_id = db.Column(db.Integer, db.ForeignKey("debt_collection_debtors.id"), nullable=False, index=True)
     loan_amount = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal("0.00"))
     amount_paid = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal("0.00"))
+    imported_balance = db.Column(db.Numeric(14, 2), nullable=True)
     loan_date = db.Column(db.Date, nullable=False)
     last_interest_calc_date = db.Column(db.Date, nullable=True)
     no_of_days = db.Column(db.Integer, nullable=True, default=0)
     status = db.Column(db.String(40), nullable=False, default="Active", index=True)
     is_deleted = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -79,6 +84,8 @@ class DebtCollectionLoan(db.Model):
 
     @property
     def loan_balance(self):
+        if self.imported_balance is not None:
+            return self.imported_balance
         return self.loan_amount - self.amount_paid
 
 

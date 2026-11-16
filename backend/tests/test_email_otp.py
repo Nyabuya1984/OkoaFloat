@@ -1,75 +1,22 @@
 import re
 from datetime import datetime, timedelta
 
-from flask import Flask
-
-from app.extensions import db
+from app.api.auth import _hash_otp
 from app.models import OtpChallenge, User
-from app.utils.email_delivery import send_otp_email
 
 
-def test_gmail_smtp_uses_starttls_and_app_password(monkeypatch):
-    calls = []
-
-    class FakeSMTP:
-        def __init__(self, host, port, timeout):
-            calls.append(("connect", host, port, timeout))
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc_value, traceback):
-            return False
-
-        def starttls(self):
-            calls.append(("starttls",))
-
-        def login(self, username, password):
-            calls.append(("login", username, password))
-
-        def send_message(self, message):
-            calls.append(("send", message["To"], message["From"]))
-
-    monkeypatch.setattr("app.utils.email_delivery.smtplib.SMTP", FakeSMTP)
-    app = Flask(__name__)
-    app.config.update(
-        SMTP_HOST="smtp.gmail.com",
-        SMTP_PORT=587,
-        SMTP_USERNAME="sender@gmail.com",
-        SMTP_PASSWORD="google-app-password",
-        SMTP_FROM_EMAIL="sender@gmail.com",
-        SMTP_USE_TLS=True,
-        SMTP_USE_SSL=False,
+def _latest_code(session, phone_number, purpose):
+    challenge = (
+        session.query(OtpChallenge)
+        .filter_by(phone_number=phone_number, purpose=purpose)
+        .one()
     )
-
-    with app.app_context():
-        send_otp_email(
-            "recipient@example.com",
-            "login",
-            "+254712345678",
-            "012345",
-            datetime(2026, 10, 4, 18, 0),
-        )
-
-    assert calls == [
-        ("connect", "smtp.gmail.com", 587, 15),
-        ("starttls",),
-        ("login", "sender@gmail.com", "google-app-password"),
-        ("send", "recipient@example.com", "sender@gmail.com"),
-    ]
+    assert re.fullmatch(r"\d{6}", challenge.plaintext_code)
+    return challenge.plaintext_code
 
 
-def _latest_code(app, recipient):
-    sent = [
-        message
-        for message in app.config["TEST_EMAIL_OUTBOX"]
-        if message["recipient"] == recipient
-    ][-1]
-    return re.search(r"OTP: (\d{6})", sent["body"]).group(1)
-
-
-def test_registration_delivers_to_any_valid_registered_email_and_requires_confirmation(
-    client, app, session
+def test_registration_otp_uses_one_official_email_for_confirmation(
+    client, session
 ):
     response = client.post(
         "/api/auth/register",
@@ -78,102 +25,87 @@ def test_registration_delivers_to_any_valid_registered_email_and_requires_confir
             "job_position_title": "Analyst",
             "employer": "Okoa Float",
             "department": "Sales",
-            "email": "  User@Mail.Custom  ",
-            "personal_email": " User.Personal@Mail.Custom ",
+            "official_email": "  User@Mail.Custom  ",
             "phone_number": "+254712300001",
             "password": "Password@2026",
         },
     )
     assert response.status_code == 201, response.get_json()
-    assert {item["recipient"] for item in app.config["TEST_EMAIL_OUTBOX"][-2:]} == {
-        "user@mail.custom",
-        "user.personal@mail.custom",
-    }
+    assert "database and development console" in response.get_json()["message"]
+
     user = session.query(User).filter_by(phone_number="+254712300001").one()
     assert user.email == "user@mail.custom"
-    assert user.personal_email == "user.personal@mail.custom"
-    challenge = session.query(OtpChallenge).filter_by(user_id=user.id, purpose="registration").one()
+    assert user.personal_email == "user@mail.custom"
+    code = _latest_code(session, user.phone_number, "registration")
 
-    code = _latest_code(app, "user@mail.custom")
-    assert challenge.plaintext_code == code
     mismatch = client.post(
         "/api/auth/verify-registration",
         json={"phone_number": user.phone_number, "email": "someone@mail.custom", "otp": code},
     )
     assert mismatch.status_code == 401
-    session.refresh(challenge)
-    assert challenge.status == "active"
 
     verified = client.post(
         "/api/auth/verify-registration",
-        json={"phone_number": user.phone_number, "email": " USER.PERSONAL@MAIL.CUSTOM ", "otp": code},
+        json={
+            "phone_number": user.phone_number,
+            "official_email": " USER@MAIL.CUSTOM ",
+            "otp": code,
+        },
     )
     assert verified.status_code == 200
 
 
-def test_login_sends_to_saved_email_and_confirmation_is_strict(
-    client, app, session, capsys
-):
+def test_login_otp_is_stored_and_single_use(client, session, caplog):
     response = client.post(
         "/api/auth/login",
-        json={"phone_number": "+254700000001", "password": "Admin@2026!"},
+        json={"phone_number": "+254721143189", "password": "Admin@2026!"},
     )
     assert response.status_code == 200, response.get_json()
-    assert {item["recipient"] for item in app.config["TEST_EMAIL_OUTBOX"][-2:]} == {
-        "admin@okoa.local",
-        "admin.personal@example.com",
-    }
-    code = _latest_code(app, "admin@okoa.local")
-    wrong_email = client.post(
-        "/api/auth/verify-otp",
-        json={"phone_number": "+254700000001", "email": "other@okoa.local", "otp": code},
-    )
-    assert wrong_email.status_code == 401
+    assert "email_sent" not in response.get_json()
+    assert "database and development console" in response.get_json()["message"]
     challenge = session.query(OtpChallenge).filter_by(
-        phone_number="+254700000001", purpose="login"
+        phone_number="+254721143189", purpose="login"
     ).one()
-    assert challenge.plaintext_code == code
-    console_output = capsys.readouterr().out
-    assert "OKOA FLOAT VERIFICATION CODE" in console_output
-    assert "PURPOSE: LOGIN" in console_output
-    assert "PHONE:   +254700000001" in console_output
-    assert f"OTP:     {code}" in console_output
-    assert challenge.status == "active"
+    code = challenge.plaintext_code
+    assert re.fullmatch(r"\d{6}", code)
+    assert challenge.code_hash is None
+    assert "========== DEVELOPMENT OTP ==========" in caplog.text
+    assert "Purpose: Login" in caplog.text
+    assert "Phone:   +254721143189" in caplog.text
+    assert f"Code:    {code}" in caplog.text
+    assert "Expires:" in caplog.text
+    assert "=====================================" in caplog.text
 
     verified = client.post(
         "/api/auth/verify-otp",
-        json={"phone_number": "+254700000001", "otp": code},
+        json={"phone_number": "+254721143189", "otp": code},
     )
     assert verified.status_code == 200
     assert verified.get_json()["access_token"]
+    assert (
+        session.query(OtpChallenge)
+        .filter_by(phone_number="+254721143189", purpose="login")
+        .count()
+        == 0
+    )
 
 
-def test_password_and_phone_recovery_use_registered_email(client, app, session):
+def test_password_and_phone_recovery_use_database_otp(client, session):
     requested = client.post(
-        "/api/auth/request-password-reset", json={"email": "ADMIN.PERSONAL@EXAMPLE.COM"}
+        "/api/auth/request-password-reset", json={"phone_number": "+254721143189"}
     )
     assert requested.status_code == 200, requested.get_json()
-    assert app.config["TEST_EMAIL_OUTBOX"][-1]["recipient"] == "admin.personal@example.com"
-    reset_code = _latest_code(app, "admin@okoa.local")
-    mismatch = client.post(
-        "/api/auth/reset-password",
-        json={
-            "email": "not-admin@okoa.local",
-            "otp": reset_code,
-            "new_password": "Changed@2026!",
-        },
-    )
-    assert mismatch.status_code == 401
+    reset_code = _latest_code(session, "+254721143189", "reset")
     reset = client.post(
         "/api/auth/reset-password",
         json={
-            "email": " admin.personal@example.com ",
+            "phone_number": "+254721143189",
             "otp": reset_code,
             "new_password": "Changed@2026!",
         },
     )
     assert reset.status_code == 200
-    assert session.query(User).filter_by(phone_number="+254700000001").one().check_password(
+    assert session.query(User).filter_by(phone_number="+254721143189").one().check_password(
         "Changed@2026!"
     )
 
@@ -181,111 +113,90 @@ def test_password_and_phone_recovery_use_registered_email(client, app, session):
         "/api/auth/request-phone-recovery", json={"email": "admin.personal@example.com"}
     )
     assert requested.status_code == 200
-    recovery_code = _latest_code(app, "admin@okoa.local")
+    recovery_code = _latest_code(session, "+254721143189", "account_recovery")
     recovered = client.post(
         "/api/auth/recover-phone",
         json={"email": "ADMIN.PERSONAL@EXAMPLE.COM", "otp": recovery_code},
     )
     assert recovered.status_code == 200
-    assert recovered.get_json()["phone_number"] == "+254700000001"
+    assert recovered.get_json()["phone_number"] == "+254721143189"
 
 
-def test_email_delivery_not_configured_keeps_local_otp_available(
-    client, app, session, monkeypatch, capsys
-):
-    monkeypatch.setitem(app.config, "OTP_EMAIL_SENDER", None)
-    monkeypatch.setitem(app.config, "SMTP_HOST", None)
-    monkeypatch.setitem(app.config, "SMTP_FROM_EMAIL", None)
-    response = client.post(
-        "/api/auth/login",
-        json={"phone_number": "+254700000001", "password": "Admin@2026!"},
+def test_reset_request_response_does_not_disclose_account_existence(client):
+    existing = client.post(
+        "/api/auth/request-password-reset",
+        json={"phone_number": "+254721143189"},
     )
-    assert response.status_code == 200
-    assert response.get_json()["email_sent"] is False
-    assert "development database and shown in the server console" in response.get_json()["message"]
-    challenge = session.query(OtpChallenge).filter_by(purpose="login").one()
-    assert challenge.plaintext_code is not None
-    console_output = capsys.readouterr().out
-    assert "OKOA FLOAT VERIFICATION CODE" in console_output
-    assert "PURPOSE: LOGIN" in console_output
-    assert "PHONE:   +254700000001" in console_output
-    assert f"OTP:     {challenge.plaintext_code}" in console_output
-
-
-def test_failed_work_email_does_not_skip_personal_email_attempt(
-    client, app, monkeypatch
-):
-    attempted = []
-
-    def send_email(recipient, purpose, phone_number, code, expires_at):
-        attempted.append(recipient)
-        if recipient == "admin@okoa.local":
-            raise RuntimeError("work mailbox delivery failed")
-        app.config["TEST_EMAIL_OUTBOX"].append(
-            {
-                "recipient": recipient,
-                "subject": f"Okoa Float {purpose} OTP for {phone_number}",
-                "body": f"OTP: {code}",
-            }
-        )
-
-    monkeypatch.setattr("app.api.auth.send_otp_email", send_email)
-    response = client.post(
-        "/api/auth/login",
-        json={"phone_number": "+254700000001", "password": "Admin@2026!"},
+    missing = client.post(
+        "/api/auth/request-password-reset",
+        json={"phone_number": "+254700009999"},
     )
 
-    assert response.status_code == 200
-    assert response.get_json()["email_sent"] is False
-    assert attempted == ["admin@okoa.local", "admin.personal@example.com"]
+    assert existing.status_code == missing.status_code == 200
+    assert existing.get_json() == missing.get_json()
 
 
-def test_email_otp_message_identifies_purpose_and_phone(client, app):
+def test_fifth_incorrect_code_invalidates_challenge(client, session):
     client.post(
         "/api/auth/login",
-        json={"phone_number": "+254700000001", "password": "Admin@2026!"},
+        json={"phone_number": "+254721143189", "password": "Admin@2026!"},
     )
-    message = app.config["TEST_EMAIL_OUTBOX"][-2]
-    assert message["subject"] == "Okoa Float login OTP for +254700000001"
-    assert "Purpose: Login" in message["body"]
-    assert "Phone number: +254700000001" in message["body"]
-    assert "OTP: " in message["body"]
+    challenge = session.query(OtpChallenge).filter_by(
+        phone_number="+254721143189", purpose="login"
+    ).one()
+    challenge.code_hash = _hash_otp("012345")
+    session.commit()
+
+    for _ in range(5):
+        response = client.post(
+            "/api/auth/verify-otp",
+            json={"phone_number": "+254721143189", "otp": "999999"},
+        )
+        assert response.status_code == 401
+
+    session.refresh(challenge)
+    assert challenge.attempts == 5
+    assert challenge.status == "expired"
+    assert re.fullmatch(r"\d{6}", challenge.plaintext_code)
 
 
-def test_admin_created_user_requires_and_saves_personal_email(client, admin_token, session):
+def test_admin_created_user_uses_one_official_email_and_assigns_hierarchy(
+    client, admin_token, session
+):
     response = client.post(
         "/api/auth/admin/users",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers={"Authorization": f"******"},
         json={
             "full_name": "Admin Created User",
-            "email": "created.work@example.com",
-            "personal_email": "created.personal@example.com",
+            "official_email": "created@example.com",
             "phone_number": "+254712300002",
             "password": "Password@2026",
-            "department": "Sales",
+            "department": "General Management",
+            "organizational_role": "general_manager",
         },
     )
     assert response.status_code == 200, response.get_json()
-    user = session.query(User).filter_by(email="created.work@example.com").one()
-    assert user.personal_email == "created.personal@example.com"
+    user = session.query(User).filter_by(email="created@example.com").one()
+    assert user.personal_email == "created@example.com"
+    assert response.get_json()["data"]["official_email"] == "created@example.com"
 
 
-def test_otp_expires_two_hours_after_issue(client, session):
+def test_otp_expires_after_ten_minutes(client, session):
     response = client.post(
-        "/api/auth/request-password-reset", json={"email": "admin@okoa.local"}
+        "/api/auth/request-password-reset", json={"phone_number": "+254721143189"}
     )
     assert response.status_code == 200
-    challenge = session.query(OtpChallenge).filter_by(purpose="password_reset").one()
+    challenge = session.query(OtpChallenge).filter_by(purpose="reset").one()
     assert abs(
-        (challenge.expires_at - challenge.created_at) - timedelta(hours=2)
+        (challenge.expires_at - challenge.created_at) - timedelta(minutes=10)
     ) < timedelta(seconds=1)
     challenge.expires_at = datetime.utcnow() - timedelta(seconds=1)
     session.commit()
     expired = client.post(
         "/api/auth/reset-password",
         json={
-            "email": "admin@okoa.local",
-            "otp": _latest_code(client.application, "admin@okoa.local"),
+            "phone_number": "+254721143189",
+            "otp": challenge.plaintext_code,
             "new_password": "Changed@2026!",
         },
     )

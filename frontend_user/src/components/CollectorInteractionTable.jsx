@@ -154,10 +154,14 @@ export default function CollectorInteractionTable({
   onLogCall,
   onOpenLoan,
   onRefresh,
+  onImportClick,
+  importReady = false,
+  importing = false,
 }) {
   const [contactDate, setContactDate] = useState('');
   const [search, setSearch] = useState('');
   const [collapsedOutcomes, setCollapsedOutcomes] = useState([]);
+  const [reportsHidden, setReportsHidden] = useState(false);
   const tableRefs = useRef({});
   const latestInteractionDate = interactions.reduce((latest, call) => {
     const date = call.contact_date || call.created_at?.slice(0, 10);
@@ -297,11 +301,14 @@ export default function CollectorInteractionTable({
           </span>
         </label>
         <div className="collector-report-toolbar-actions">
+          {onImportClick && <button type="button" className="collector-report-control collector-report-export" onClick={onImportClick} disabled={importing}>{importing ? 'Importing…' : importReady ? '↑ Import portfolio' : '↑ Choose CSV / Excel'}</button>}
+          <button type="button" className="collector-report-control" aria-expanded={!reportsHidden} onClick={() => setReportsHidden((hidden) => !hidden)}>{reportsHidden ? 'Show reports' : 'Hide reports'}</button>
           <button type="button" className="collector-report-control" onClick={() => toggleAll(true)}>＋ Expand all</button>
           <button type="button" className="collector-report-control" onClick={() => toggleAll(false)}>－ Collapse all</button>
           <button type="button" className="collector-report-control collector-report-export" onClick={exportCsv} disabled={visibleInteractions.length === 0}>↓ Export CSV</button>
         </div>
       </div>
+      {!reportsHidden && <>
       <nav className="collector-outcome-picker" aria-label="Jump to call outcome report">
         {groupedInteractions.map(({ outcome, interactions: calls }) => (
           <button
@@ -360,6 +367,7 @@ export default function CollectorInteractionTable({
           );
         })}
       </div>
+      </>}
     </section>
   );
 }

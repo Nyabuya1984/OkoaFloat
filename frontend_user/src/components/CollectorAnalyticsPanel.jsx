@@ -11,14 +11,14 @@ import {
 } from 'recharts';
 
 const outcomeColors = {
-  phone_off: '#c2410c',
-  no_answer: '#b45309',
-  negotiation: '#be123c',
-  wrong_number: '#9d174d',
-  promise_to_pay: '#a16207',
-  callback_requested: '#c2415d',
-  full_payment: '#9a3412',
-  partial_payment: '#d97706',
+  phone_off: '#c2610c',
+  no_answer: '#b45909',
+  negotiation: '#be6212',
+  wrong_number: '#9d5617',
+  promise_to_pay: '#a04f08',
+  callback_requested: '#c27d41',
+  full_payment: '#9a5112',
+  partial_payment: '#d4690b',
 };
 const outcomeNames = {
   phone_off: 'Phone off / unreachable',
@@ -90,13 +90,13 @@ export default function CollectorAnalyticsPanel({ analytics }) {
             <AreaChart data={trend} margin={{ top: 7, right: 2, left: 2, bottom: 0 }}>
               <defs>
                 <linearGradient id="collectorRecoveryFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#c2410c" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#c2410c" stopOpacity={0.015} />
+                  <stop offset="0%" stopColor="#c2610c" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#c2610c" stopOpacity={0.015} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: '#dce8e4' }} tick={{ fill: '#70817c', fontSize: 10 }} />
+              <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: '#e8e2dc' }} tick={{ fill: '#787878', fontSize: 10 }} />
               <Tooltip formatter={(value) => money(value)} />
-              <Area type="monotone" dataKey="amount" stroke="#c2410c" strokeWidth={2} fill="url(#collectorRecoveryFill)" />
+              <Area type="monotone" dataKey="amount" stroke="#c2610c" strokeWidth={2} fill="url(#collectorRecoveryFill)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>

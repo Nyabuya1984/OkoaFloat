@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   cancelLeaveRequest,
   createLeaveRequest,
@@ -12,8 +13,8 @@ import {
 } from '../services/leaveApi';
 import { deleteProfilePhoto, updateProfile, uploadProfilePhoto } from '../services/profileApi';
 import { getChatMessages, getChatUsers, getUnreadChatCount, markChatMessagesRead, sendChatMessage } from '../services/chatApi';
+import { getManagerChatPeers } from '../services/leaveChatUtils';
 import './LeaveDashboard.css';
-import AppShell from './AppShell';
 import HandoverAcceptance from './HandoverAcceptance';
 import HandoverReportForm from './HandoverReportForm';
 import ApprovalRequestCard from './ApprovalRequestCard';
@@ -26,10 +27,16 @@ import SalesReportsPage from './SalesReportsPage';
 import LeaveApplicationWizard from './LeaveApplicationWizard';
 import TeamCalendarSection from './TeamCalendarSection';
 import { getAuthToken, refreshAuthToken } from '../services/authStorage';
-import { apiUrl } from '../services/apiConfig';
+import { apiUrl, readJsonResponse } from '../services/apiConfig';
 import SalesV2DashboardWidgets from './sales/SalesV2DashboardWidgets';
 import DebtCollectionPage from './DebtCollectionPage';
-import { isDashboardFeatureEnabled } from '../navigation';
+import {
+  canAccessDashboardFeature,
+  isDebtCollectionAssignment,
+  isGeneralManagerUser,
+} from '../navigation';
+import { LocationSharingAdminPanel, LocationTrackingScheduleSettings } from './OrganizationPages';
+import DashboardLanding from './DashboardLanding';
 
 const emptyForm = {
   leave_type_id: '', start_date: '', end_date: '', reason: '', contact_phone: '', contact_email: '',
@@ -42,6 +49,51 @@ const defaultWorkflowSettings = {
   hr_verification_required: true,
   require_delegate_for_extended_leave: true,
 };
+const departmentPageOptions = [
+  ['sales-reports', 'Sales reports'],
+  ['organization-live', 'Live field locations'],
+  ['debt-collection', 'Debt Collection'],
+  ['customer-care-logs', 'Call Logs'],
+  ['customer-care-new', 'Log Phone Call'],
+  ['customer-care-customers', 'Customer Directory'],
+  ['customer-care-follow-ups', 'Pending Follow-Ups'],
+  ['okia-overview', 'Operations Overview'],
+  ['okia-escalations', 'Escalations'],
+  ['okia-shifts', 'Shift management'],
+  ['okia-shift-coverage', 'Shift coverage'],
+  ['okia-concerns', 'Customer concerns'],
+  ['okia-gm-resolution', 'GM resolutions'],
+  ['okia-gm-attention', 'GM attention'],
+  ['okia-agent-shift-matrix', 'Agent shift matrix'],
+  ['okia-concern-report', 'Concern report'],
+  ['okia-escalation-report', 'Escalation report'],
+  ['hr-module', 'HR module'],
+  ['hr-verification', 'HR verification'],
+];
+const pagePaths = {
+  dashboard: '/dashboard',
+  'apply-leave': '/dashboard/leave/apply',
+  'my-leave': '/dashboard/leave',
+  history: '/dashboard/history',
+  delegations: '/dashboard/handover',
+  chat: '/dashboard/chat',
+  approvals: '/dashboard/leave/approvals',
+  'team-calendar': '/dashboard/calendar',
+  calendar: '/dashboard/calendar',
+  'sales-reports': '/dashboard/reports/sales',
+  'debt-collection': '/dashboard/debt-collection',
+  'hr-module': '/dashboard/hr',
+  'hr-verification': '/dashboard/hr/verification',
+  users: '/dashboard/employees',
+  employees: '/dashboard/employees',
+  departments: '/dashboard/departments',
+  profile: '/dashboard/profile/edit',
+  'dashboard-feature-access': '/dashboard/settings',
+  'dashboard-settings': '/dashboard/settings',
+  'leave-policies': '/dashboard/leave-policies',
+  'leave-balances': '/dashboard/leave-balances',
+  'leave-management-history': '/dashboard/leave-management/history',
+};
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -51,9 +103,29 @@ const formatDate = (value) => {
 };
 
 const statusClass = (status) => `leave-status leave-status-${String(status).toLowerCase()}`;
+const organizationRoleLabels = {
+  general_manager: 'General Manager',
+  department_manager: 'Department Manager',
+  team_leader: 'Team Leader',
+  field_agent: 'Field Agent / Employee',
+};
+const managerRoleByPosition = {
+  department_manager: 'general_manager',
+  team_leader: 'department_manager',
+  field_agent: 'team_leader',
+};
+const departmentRoleFor = (department) => {
+  const normalized = String(department || '').toLowerCase();
+  if (normalized.includes('sales') || normalized.includes('marketing')) return 'sales';
+  if (normalized.includes('debt') || normalized.includes('collection')) return 'debt_collection';
+  if (normalized.includes('care')) return 'customer_care';
+  return '';
+};
 const workflowLabel = (request) => ({
   handover_pending: 'Waiting for delegate',
-  supervisor_pending: 'Waiting for manager',
+  team_leader_pending: 'Waiting for Team Leader',
+  department_manager_pending: 'Waiting for Department Manager',
+  general_manager_pending: 'Waiting for General Manager',
   hr_verification: 'Waiting for HR verification',
   approved: 'Approved · awaiting HR',
   completed: 'Completed',
@@ -62,7 +134,10 @@ const workflowLabel = (request) => ({
 }[request.workflow_state] || request.status || 'Submitted');
 const workflowStatusClass = (request) => statusClass(request.workflow_state || request.status);
 
-const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
+const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handleLogout }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { dashboardFeatures, setDashboardFeatures } = useOutletContext();
   const [overview, setOverview] = useState({ types: [], balances: [], requests: [] });
   const [historyRequests, setHistoryRequests] = useState([]);
   const [delegations, setDelegations] = useState([]);
@@ -79,16 +154,18 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const [profileForm, setProfileForm] = useState({});
   const [profilePhoto, setProfilePhoto] = useState('');
   const [chatUsers, setChatUsers] = useState([]);
-  const [chatPeer, setChatPeer] = useState('');
+  const [chatPeer, setChatPeer] = useState(() => String(location.state?.chatPeer || ''));
+  const [chatTarget, setChatTarget] = useState(() => location.state?.chatTarget || null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatBody, setChatBody] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState('');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [showChat, setShowChat] = useState(false);
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const activeSection = 'dashboard';
   const [decisionDialog, setDecisionDialog] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
+  const [decisionSignature, setDecisionSignature] = useState('');
   const [openHandoverId, setOpenHandoverId] = useState(null);
   const [requestView, setRequestView] = useState(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -98,17 +175,21 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const [emailNotifications, setEmailNotifications] = useState(() => window.sessionStorage.getItem('okoa_email_notifications') !== 'false');
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminDepartments, setAdminDepartments] = useState([]);
+  const [organizationalCandidates, setOrganizationalCandidates] = useState([]);
   const [adminLeaveTypes, setAdminLeaveTypes] = useState([]);
   const [adminWorkflowSettings, setAdminWorkflowSettings] = useState(defaultWorkflowSettings);
-  const [dashboardFeatures, setDashboardFeatures] = useState({ sales_reports: true, debt_collection: true });
   const [dashboardRoleFeatures, setDashboardRoleFeatures] = useState({ EMPLOYEE: { sales_reports: true, debt_collection: true }, MANAGER: { sales_reports: true, debt_collection: true }, HR_ADMIN: { sales_reports: true, debt_collection: true }, SYSTEM_ADMIN: { sales_reports: true, debt_collection: true }, SUPER_ADMIN: { sales_reports: true, debt_collection: true } });
   const [userDuties, setUserDuties] = useState({});
   const [userDutySearch, setUserDutySearch] = useState('');
   const [securityEvents, setSecurityEvents] = useState([]);
   const [adminAudit, setAdminAudit] = useState([]);
   const [adminHealth, setAdminHealth] = useState({ database: 'unknown', uploads_ready: false, active_users: 0, pending_users: 0 });
+  const [systemTestDataBusy, setSystemTestDataBusy] = useState(false);
+  const [systemTestDataConfirmation, setSystemTestDataConfirmation] = useState('');
   const [adminDepartmentName, setAdminDepartmentName] = useState('');
   const [editingDepartmentId, setEditingDepartmentId] = useState(null);
+  const [departmentPageSettings, setDepartmentPageSettings] = useState({});
+  const [savingDepartmentPagesId, setSavingDepartmentPagesId] = useState(null);
   const [leaveTypeForm, setLeaveTypeForm] = useState({ name: '', code: '', is_paid: true, requires_document: false, default_days_per_year: 21 });
   const [editingLeaveTypeId, setEditingLeaveTypeId] = useState(null);
   const [editingAdminUserId, setEditingAdminUserId] = useState(null);
@@ -118,90 +199,181 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     email: '',
     phone_number: '',
     password: '',
-    department: 'General',
+    department: '',
     role: 'employee',
     job_position_title: 'Staff',
+    organizational_role: 'field_agent',
+    department_role: '',
+    manager_id: '',
     employer: 'Okoa Float Ltd',
     is_superuser: false,
   });
 
   const role = String(currentUser?.role || 'employee').toLowerCase();
+  const organizationalRole = currentUser?.active_assignment?.organizational_role || '';
+  const isDepartmentManagerTier = organizationalRole === 'department_manager';
+  const isTeamLeaderTier = organizationalRole === 'team_leader';
+  const dashboardTier = isGeneralManagerUser(currentUser) ? 'general_manager'
+    : isDepartmentManagerTier ? 'department_manager'
+      : isTeamLeaderTier ? 'team_leader' : 'employee';
+  const assignedDepartment = currentUser?.active_assignment?.department_name
+    || currentUser?.active_assignment?.department
+    || currentUser?.department
+    || '';
+  const isOrgApprover = ['general_manager', 'department_manager', 'team_leader'].includes(organizationalRole);
   const canAssignEmployeeDuties = role === 'super_admin' || currentUser?.is_superuser === true;
   const isManager = role === 'manager';
   const isHr = ['hr_admin', 'system_admin'].includes(role);
   const isSuperAdmin = role === 'super_admin' || currentUser?.is_superuser === true || role === 'system_admin' || (role === 'hr_admin' && currentUser?.is_superuser === true);
-  const canApprove = isManager || isHr || isSuperAdmin;
-  const isSalesEmployee = role === 'employee' && !isSuperAdmin;
+  const canConfigureDepartmentPages = role === 'super_admin' || currentUser?.is_superuser === true;
+  const managerRole = managerRoleByPosition[adminForm.organizational_role];
+  const managerCandidates = organizationalCandidates.filter((candidate) => (
+    candidate.organizational_role === managerRole
+    && (
+      adminForm.organizational_role === 'department_manager'
+      || candidate.department_id === adminDepartments.find(
+        (department) => department.name === adminForm.department,
+      )?.id
+    )
+  ));
+  const canManageLeaveSettings = ['hr_admin', 'system_admin', 'super_admin'].includes(role)
+    || currentUser?.is_superuser === true;
+  const canApprove = isHr || isSuperAdmin || isOrgApprover;
+  const canEditOperations = isManager || isHr || isSuperAdmin
+    || ['department_manager', 'team_leader'].includes(organizationalRole);
+  const isSalesEmployee = role === 'employee'
+    && organizationalRole === 'field_agent'
+    && (
+      String(currentUser?.active_assignment?.department_role || currentUser?.department_role || '').toLowerCase() === 'sales'
+      || /sales|marketing/i.test(assignedDepartment)
+    )
+    && !isSuperAdmin;
   const filteredDutyUsers = adminUsers.filter((user) => {
     const query = userDutySearch.trim().toLowerCase();
     return !query || [user.full_name, user.email, user.employee_id].some((value) => String(value || '').toLowerCase().includes(query));
   });
-  const canAccessSalesReports = isDashboardFeatureEnabled(dashboardFeatures, 'sales_reports') && (isSalesEmployee || isManager || isHr || isSuperAdmin);
-  const canAccessDebtCollection = isDashboardFeatureEnabled(dashboardFeatures, 'debt_collection') && (isSalesEmployee || isManager || isHr || isSuperAdmin);
+  const canViewEmployeePerformance = isGeneralManagerUser(currentUser)
+    || (
+      ['team_leader', 'department_manager'].includes(organizationalRole)
+      && /sales|marketing/i.test(assignedDepartment)
+    );
+  const canAccessSalesReports = canViewEmployeePerformance
+    || (
+      !isDepartmentManagerTier
+      && !isTeamLeaderTier
+      && canAccessDashboardFeature(currentUser, 'sales_reports', dashboardFeatures)
+      && (isSalesEmployee || isManager || isHr || isSuperAdmin)
+    );
+  const hasDebtCollectionAssignment = isDebtCollectionAssignment({
+    ...currentUser?.active_assignment,
+    department_role: currentUser?.active_assignment?.department_role || currentUser?.department_role,
+  });
+  const canAccessDebtCollection = hasDebtCollectionAssignment
+    || (canAccessDashboardFeature(currentUser, 'debt_collection', dashboardFeatures)
+      && (isGeneralManagerUser(currentUser) || isHr || isSuperAdmin));
 
-  const openSalesReports = (targetId = 'sales-report-workspace') => {
+  useEffect(() => {
+    if (page !== 'legacy' || !isSuperAdmin) return undefined;
+    let active = true;
+    fetch(apiUrl('/api/organization/transfer-candidates'), {
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+    })
+      .then(async (response) => {
+        const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+        if (!response.ok) throw new Error(payload.error?.message || 'Unable to load organizational managers.');
+        return payload.data || [];
+      })
+      .then((candidates) => {
+        if (active) setOrganizationalCandidates(candidates);
+      })
+      .catch((error) => {
+        if (active) setMessage({ type: 'error', text: error.message });
+      });
+    return () => { active = false; };
+  }, [page, isSuperAdmin]);
+
+  useEffect(() => {
+    if (page === 'sales-reports' && !canAccessSalesReports) {
+      navigate('/dashboard', { replace: true });
+    }
+    if (page === 'debt-collection' && !canAccessDebtCollection) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [canAccessDebtCollection, canAccessSalesReports, navigate, page]);
+
+  const openSalesReports = () => {
     if (!canAccessSalesReports) {
-      setActiveSection('dashboard');
-      const redirect = role === 'manager' ? '/manager' : ['hr_admin', 'system_admin', 'super_admin'].includes(role) ? '/hr' : '/dashboard';
-      window.history.pushState({}, '', redirect);
-      window.requestAnimationFrame(() => document.getElementById('overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      navigate('/dashboard', { replace: true });
       return;
     }
-
-    setActiveSection('sales-reports');
-    window.history.replaceState({}, '', `${window.location.pathname}#sales-reports`);
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      const selector = document.getElementById(targetId) || document.getElementById('sales-reports');
-      selector?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }));
+    navigate(pagePaths['sales-reports']);
   };
 
-  const navigateToSection = (section, path) => {
+  const navigateToSection = (section) => {
     if (section === 'sales-reports' && !canAccessSalesReports) {
-      setActiveSection('dashboard');
-      const redirect = role === 'manager' ? '/manager' : ['hr_admin', 'system_admin', 'super_admin'].includes(role) ? '/hr' : '/dashboard';
-      window.history.pushState({}, '', redirect);
-      window.requestAnimationFrame(() => document.getElementById('overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      navigate('/dashboard', { replace: true });
       return;
     }
     if (section === 'debt-collection' && !canAccessDebtCollection) {
-      setActiveSection('dashboard');
-      const redirect = role === 'manager' ? '/manager' : ['hr_admin', 'system_admin', 'super_admin'].includes(role) ? '/hr' : '/dashboard';
-      window.history.pushState({}, '', redirect);
-      window.requestAnimationFrame(() => document.getElementById('overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      navigate('/dashboard', { replace: true });
       return;
     }
-    if (path && window.location.pathname !== path) window.history.pushState({}, '', path);
     if (section === 'logout') {
       handleLogout();
       return;
     }
-    if (section === 'profile') {
-      openProfile();
-      setActiveSection(section);
-      return;
+    if (pagePaths[section]) navigate(pagePaths[section]);
+  };
+
+  const loadPageData = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      if (['dashboard', 'my-leave', 'apply-leave'].includes(page)) {
+        setOverview(await getLeaveOverview());
+      }
+      if (page === 'history') {
+        setHistoryRequests((await getLeaveHistory()).data || []);
+      }
+      if (page === 'delegations') {
+        setDelegations((await getDelegations()).data || []);
+      }
+      if (['apply-leave', 'delegations'].includes(page)) {
+        const peers = await getChatUsers();
+        setChatUsers(peers.data || []);
+        if (!chatPeer && peers.data?.[0]) setChatPeer(String(peers.data[0].id));
+      }
+      if (['approvals', 'hr-verification'].includes(page)) {
+        setPendingRequests((await getPendingLeaveRequests()).data || []);
+      }
+      if (page === 'dashboard' && (isGeneralManagerUser(currentUser) || isDepartmentManagerTier || isTeamLeaderTier)) {
+        setPendingRequests((await getPendingLeaveRequests()).data || []);
+      }
+      if (page === 'calendar') {
+        setCalendarRequests((await getTeamCalendar()).data || []);
+      }
+      if (page === 'sales-reports') {
+        const response = await fetch(apiUrl('/api/sales/reports'), { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+        const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+        if (!response.ok) throw new Error(payload.error?.message || 'Unable to load sales reports.');
+        setSalesReports(payload.data || []);
+      }
+      if (page === 'chat') {
+        const unread = await getUnreadChatCount();
+        setUnreadChatCount(Number(unread.data?.count || 0));
+      }
+      if (['admin', 'employees', 'departments', 'dashboard-settings', 'hr-module'].includes(page)) {
+        await loadRouteAdminData(page);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Unable to load this page.' });
+    } finally {
+      setLoading(false);
     }
-    if (section === 'chat') {
-      setShowChat(true);
-      setActiveSection(section);
-      return;
-    }
-    if (section === 'apply-leave') {
-      setShowRequestForm(true);
-      setActiveSection(section);
-      return;
-    }
-    if (section === 'create-employee') {
-      setActiveSection(section);
-      window.requestAnimationFrame(() => document.getElementById('managed-users')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      return;
-    }
-    const targetId = section === 'dashboard' ? 'overview' : section === 'my-leave' ? 'requests' : section === 'history' ? 'history' : section === 'delegations' ? 'delegations' : section === 'approvals' && isSuperAdmin ? 'pending-leave-approvals' : section === 'reports' && !canApprove ? 'sales-daily-report' : section === 'users' && !isSuperAdmin ? 'managed-users' : section === 'hr-verification' ? 'approvals' : section === 'workflow' ? 'workflow-settings' : section === 'security' ? 'security-events' : section === 'hr-module' ? 'hr-module' : section === 'debt-collection' ? 'debt-collection' : section === 'sessions' || section === 'invites' ? 'overview' : section;
-    setActiveSection(section);
-    window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
   const loadData = async () => {
+    if (page !== 'legacy') return loadPageData();
     setLoading(true);
     setMessage(null);
     try {
@@ -216,7 +388,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
       setDelegations(delegationData.data || []);
       setChatUsers(chatData.data || []);
       if (canApprove || isSalesEmployee) {
-        fetch(apiUrl('/api/sales/reports'), { headers: { Authorization: `Bearer ${getAuthToken()}` } }).then((response) => response.json()).then((payload) => setSalesReports(payload.data || [])).catch(() => {});
+        fetch(apiUrl('/api/sales/reports'), { headers: { Authorization: `Bearer ${getAuthToken()}` } }).then((response) => readJsonResponse(response, 'The server responded unexpectedly.')).then((payload) => setSalesReports(payload.data || [])).catch(() => {});
       }
       getUnreadChatCount().then((unread) => setUnreadChatCount(Number(unread.data?.count || 0))).catch(() => {});
       if (!chatPeer && (chatData.data || []).length > 0) {
@@ -238,7 +410,86 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     }
   };
 
+  const loadRouteAdminData = async (requestedPage) => {
+    setLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${getAuthToken()}` };
+      const requests = [];
+      if (['employees', 'admin', 'hr-module'].includes(requestedPage)) {
+        requests.push(['users', fetch(apiUrl('/api/auth/admin/users'), { headers })]);
+      }
+      if (['admin', 'employees', 'departments', 'hr-module'].includes(requestedPage)) {
+        requests.push(['departments', fetch(apiUrl('/api/auth/admin/departments'), { headers })]);
+      }
+      if (requestedPage === 'admin') {
+        requests.push(['health', fetch(apiUrl('/api/auth/admin/system-health'), { headers })]);
+      }
+      if (requestedPage === 'employees' && canAssignEmployeeDuties) {
+        requests.push(['duties', fetch(apiUrl('/api/admin/user-duties'), { headers })]);
+      }
+      if (requestedPage === 'dashboard-settings') {
+        requests.push(['features', fetch(apiUrl('/api/admin/dashboard-features'), { headers })]);
+      }
+      if (requestedPage === 'departments' && canConfigureDepartmentPages) {
+        requests.push(['departmentPages', fetch(apiUrl('/api/admin/department-pages'), { headers })]);
+      }
+      const payloads = Object.fromEntries(await Promise.all(requests.map(async ([key, request]) => {
+        const response = await request;
+        const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+        if (!response.ok) throw new Error(payload.error?.message || `Unable to load ${key}.`);
+        return [key, payload];
+      })));
+      if (payloads.users) setAdminUsers(payloads.users.data || []);
+      if (payloads.departments) setAdminDepartments(payloads.departments.data || []);
+      if (payloads.departmentPages?.data) {
+        setDepartmentPageSettings(Object.fromEntries(
+          payloads.departmentPages.data.map((department) => [department.id, department.pages || []]),
+        ));
+      }
+      if (payloads.health) setAdminHealth(payloads.health.data || { database: 'unknown', uploads_ready: false, active_users: 0, pending_users: 0 });
+      if (payloads.duties?.data) setUserDuties(payloads.duties.data);
+      if (payloads.features?.data?.features) {
+        setDashboardFeatures({ sales_reports: true, debt_collection: true, ...payloads.features.data.features });
+        if (payloads.features.data.roles) setDashboardRoleFeatures(payloads.features.data.roles);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Unable to load this page.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runSystemTestDataAction = async (action) => {
+    const deleting = action === 'delete';
+    if (deleting && systemTestDataConfirmation !== 'DELETE SYSTEM TEST DATA') {
+      setMessage({ type: 'error', text: 'Enter DELETE SYSTEM TEST DATA to confirm removal.' });
+      return;
+    }
+
+    setSystemTestDataBusy(true);
+    try {
+      const response = await fetch(apiUrl('/api/admin/system-test-data'), {
+        method: deleting ? 'DELETE' : 'POST',
+        headers: {
+          Authorization: `Bearer ${getAuthToken()}`,
+          ...(deleting ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(deleting ? { body: JSON.stringify({ confirmation: systemTestDataConfirmation }) } : {}),
+      });
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+      if (!response.ok) throw new Error(payload.error?.message || 'Unable to update system test data.');
+      setMessage({ type: 'success', text: payload.data?.message || 'System test data updated.' });
+      setSystemTestDataConfirmation('');
+      await loadRouteAdminData('admin');
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Unable to update system test data.' });
+    } finally {
+      setSystemTestDataBusy(false);
+    }
+  };
+
   const loadSuperAdminData = async () => {
+    if (page !== 'legacy') return loadRouteAdminData(page);
     try {
       const token = getAuthToken();
       const [usersResponse, departmentsResponse, leaveTypesResponse, workflowResponse, securityResponse, auditResponse, healthResponse, featuresResponse, dutiesResponse] = await Promise.all([
@@ -297,13 +548,16 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
         body: JSON.stringify({ role: roleName, feature, enabled }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload.error?.message || 'Unable to update dashboard feature.');
       const label = feature === 'debt_collection' ? 'Debt Collection' : 'Sales Reports';
       setDashboardRoleFeatures((current) => ({
         ...current,
         [roleName]: { ...current[roleName], [feature]: enabled },
       }));
+      if (roleName === role.toUpperCase()) {
+        setDashboardFeatures((current) => ({ ...current, [feature]: enabled }));
+      }
       setMessage({ type: 'success', text: `${label} ${enabled ? 'enabled' : 'disabled'} for ${roleName.replace('_', ' ').toLowerCase()} users.` });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
@@ -311,6 +565,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   };
 
   useEffect(() => {
+    if (page !== 'legacy') return undefined;
     let active = true;
     const refreshFeatures = () => {
       const request = () => fetch(apiUrl('/api/admin/dashboard-features'), { headers: { Authorization: `Bearer ${getAuthToken()}` } });
@@ -320,7 +575,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           return response;
         })
         .then(async (response) => {
-          const payload = await response.json();
+          const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
           if (!response.ok) {
             const message = response.status === 401
               ? 'Your session has expired. Please sign in again to load dashboard features.'
@@ -352,7 +607,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
       window.removeEventListener('focus', refreshFeatures);
       window.removeEventListener('dashboard-feature-access-denied', refreshFeatures);
     };
-  }, []);
+  }, [page, setDashboardFeatures]);
 
   const createDepartment = async (event) => {
     event.preventDefault();
@@ -364,11 +619,12 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: adminDepartmentName }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to save department.');
       setAdminDepartmentName('');
       setEditingDepartmentId(null);
       await loadSuperAdminData();
+      window.dispatchEvent(new Event('departments-updated'));
       setMessage({ type: 'success', text: isEditing ? 'Department updated successfully.' : 'Department created successfully.' });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
@@ -382,14 +638,41 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to delete department.');
       setEditingDepartmentId(null);
       setAdminDepartmentName('');
       await loadSuperAdminData();
+      window.dispatchEvent(new Event('departments-updated'));
       setMessage({ type: 'success', text: payload.message || 'Department deleted.' });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
+    }
+  };
+
+  const saveDepartmentPages = async (departmentId) => {
+    setSavingDepartmentPagesId(departmentId);
+    try {
+      const response = await fetch(apiUrl(`/api/admin/departments/${departmentId}/pages`), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: ['Bearer', getAuthToken()].join(' '),
+        },
+        body: JSON.stringify({ pages: departmentPageSettings[departmentId] || [] }),
+      });
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+      if (!response.ok) throw new Error(payload.error?.message || 'Unable to save department pages.');
+      setDepartmentPageSettings((current) => ({
+        ...current,
+        [departmentId]: payload.data.pages || [],
+      }));
+      window.dispatchEvent(new Event('departments-updated'));
+      setMessage({ type: 'success', text: `Pages configured for ${payload.data.name}.` });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Unable to save department pages.' });
+    } finally {
+      setSavingDepartmentPagesId(null);
     }
   };
 
@@ -407,7 +690,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           default_days_per_year: Number(leaveTypeForm.default_days_per_year || 0),
         }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to save leave type.');
       setLeaveTypeForm({ name: '', code: '', is_paid: true, requires_document: false, default_days_per_year: 21 });
       setEditingLeaveTypeId(null);
@@ -425,7 +708,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to delete leave type.');
       setEditingLeaveTypeId(null);
       setLeaveTypeForm({ name: '', code: '', is_paid: true, requires_document: false, default_days_per_year: 21 });
@@ -445,7 +728,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(adminWorkflowSettings),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to update workflow settings.');
       setAdminWorkflowSettings(payload.data || defaultWorkflowSettings);
       setMessage({ type: 'success', text: payload.message || 'Workflow settings updated.' });
@@ -464,6 +747,17 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
 
   const createAdminUser = async (event) => {
     event.preventDefault();
+    if (
+      ['field_agent', 'team_leader', 'department_manager'].includes(adminForm.organizational_role)
+      && !adminForm.department_role
+    ) {
+      setMessage({ type: 'error', text: 'Select the operational role matching the chosen department.' });
+      return;
+    }
+    if (adminForm.organizational_role !== 'general_manager' && !adminForm.manager_id) {
+      setMessage({ type: 'error', text: 'Select the employee’s manager in the organizational hierarchy.' });
+      return;
+    }
     try {
       const token = getAuthToken();
       const sanitized = sanitizeAdminRoleAssignment(adminForm.role, adminForm.is_superuser);
@@ -473,18 +767,26 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ ...adminForm, ...sanitized, is_superuser: false }),
+        body: JSON.stringify({
+          ...adminForm,
+          official_email: adminForm.email,
+          ...sanitized,
+          is_superuser: false,
+        }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to create user.');
       setAdminForm({
         full_name: '',
         email: '',
         phone_number: '',
         password: '',
-        department: 'General',
+        department: '',
         role: 'employee',
-        job_position_title: 'Staff',
+        job_position_title: organizationRoleLabels.field_agent,
+        organizational_role: 'field_agent',
+        department_role: '',
+        manager_id: '',
         employer: 'Okoa Float Ltd',
         is_superuser: false,
       });
@@ -507,7 +809,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         },
         body: JSON.stringify({ role: sanitized.role, is_superuser: false }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to update role.');
       setMessage({ type: 'success', text: payload.message || 'Role updated successfully.' });
       await loadSuperAdminData();
@@ -526,7 +828,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
         body: JSON.stringify({ duties: [...duties] }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload.error?.message || 'Unable to update employee duties.');
       setUserDuties((current) => ({ ...current, [userId]: payload.data.duties }));
       setMessage({ type: 'success', text: `Employee duties updated for ${adminUsers.find((user) => user.id === userId)?.full_name || 'employee'}.` });
@@ -540,7 +842,6 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     setEditingAdminUserId(user.id);
     setAdminUserForm({
       full_name: user.full_name || '', email: user.email || '',
-      personal_email: user.personal_email || user.contact?.email || user.email || '',
       phone_number: user.phone_number || '',
       department: user.department || user.department_details?.name || '', job_position_title: user.job_position_title || '',
       employer: user.employer || '', role: sanitizedRole, is_superuser: false,
@@ -553,13 +854,33 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     try {
       const token = getAuthToken();
       const sanitized = sanitizeAdminRoleAssignment(adminUserForm.role, adminUserForm.is_superuser);
+      const { status, ...profileFields } = adminUserForm;
+      const originalUser = adminUsers.find((user) => user.id === editingAdminUserId);
+      const originalStatus = originalUser?.account_status === 'pending'
+        ? 'pending'
+        : (originalUser?.state || (originalUser?.is_active ? 'active' : 'deactivated'));
       const response = await fetch(apiUrl(`/api/auth/admin/users/${editingAdminUserId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...adminUserForm, ...sanitized, is_superuser: false }),
+        body: JSON.stringify({
+          ...profileFields,
+          ...sanitized,
+          is_superuser: false,
+        }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to update user.');
+      if (editingAdminUserId !== currentUser.id && status !== originalStatus) {
+        const statusResponse = await fetch(apiUrl(`/api/auth/admin/users/${editingAdminUserId}/status`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: ['Bearer', token].join(' ') },
+          body: JSON.stringify({ status }),
+        });
+        const statusPayload = await statusResponse.json();
+        if (!statusResponse.ok) {
+          throw new Error(statusPayload?.error?.message || 'Profile saved, but account status could not be updated.');
+        }
+      }
       setEditingAdminUserId(null);
       await loadSuperAdminData();
       setMessage({ type: 'success', text: 'User updated successfully.' });
@@ -572,23 +893,11 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
         body: JSON.stringify({ status }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to update user status.');
+      setEditingAdminUserId(null);
       await loadSuperAdminData();
       setMessage({ type: 'success', text: payload.message || 'User status updated.' });
-    } catch (error) { setMessage({ type: 'error', text: error.message }); }
-  };
-
-  const approveAccount = async (userId) => {
-    try {
-      const response = await fetch(apiUrl(`/api/auth/accounts/${userId}/approve`), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getAuthToken()}` },
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error?.message || 'Unable to approve account.');
-      await loadSuperAdminData();
-      setMessage({ type: 'success', text: payload.message || 'Account approved.' });
     } catch (error) { setMessage({ type: 'error', text: error.message }); }
   };
 
@@ -600,7 +909,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload?.error?.message || 'Unable to delete user.');
       await loadSuperAdminData();
       setMessage({ type: 'success', text: payload.message || 'User deleted.' });
@@ -609,20 +918,17 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     }
   };
 
-  // The initial load intentionally runs once for the authenticated user.
+  // Load only the resource set required by this route.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [page]);
   useEffect(() => {
+    if (page !== 'chat') return undefined;
     const refreshUnreadCount = () => getUnreadChatCount().then((data) => setUnreadChatCount(Number(data.data?.count || 0))).catch(() => {});
     refreshUnreadCount();
     const timer = window.setInterval(refreshUnreadCount, 10000);
     return () => window.clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    if (canApprove || isSuperAdmin) {
-      loadSuperAdminData();
-    }
-  }, [canApprove, isSuperAdmin]);
+  }, [page]);
+  useEffect(() => { setShowChat(page === 'chat'); }, [page]);
 
   const updateForm = (event) => {
     const { name, value } = event.target;
@@ -641,25 +947,11 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     return days;
   };
 
-  const openProfile = () => {
-    setProfileForm({
-      employee_name: currentUser.employee_name || currentUser.full_name || '',
-      job_position_title: currentUser.job_position_title || '', employer: currentUser.employer || '',
-      department: currentUser.department || '', contact_phone: currentUser.contact?.phone || '',
-      contact_email: currentUser.contact?.email || '', address_line1: currentUser.contact?.address_line1 || '',
-      address_line2: currentUser.contact?.address_line2 || '', city: currentUser.contact?.city || '',
-      country: currentUser.contact?.country || 'Kenya', postal_code: currentUser.contact?.postal_code || '',
-    });
-    setProfilePhoto(currentUser.profile_photo_url || '');
-    setShowProfile(true);
-  };
-
   const saveProfile = async (event) => {
     event.preventDefault();
     try {
       const user = await updateProfile({ ...profileForm, profile_photo_url: profilePhoto || null });
       onUserUpdated(user);
-      setShowProfile(false);
       setMessage({ type: 'success', text: 'Profile updated.' });
     } catch (error) { setMessage({ type: 'error', text: error.message }); }
   };
@@ -688,20 +980,44 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     }
   };
 
+  useEffect(() => {
+    if (page !== 'profile') return;
+    setProfileForm({
+      employee_name: currentUser.employee_name || currentUser.full_name || '',
+      job_position_title: currentUser.job_position_title || '',
+      employer: currentUser.employer || '',
+      department: currentUser.department || '',
+      contact_phone: currentUser.contact?.phone || '',
+      contact_email: currentUser.contact?.email || '',
+      address_line1: currentUser.contact?.address_line1 || '',
+      address_line2: currentUser.contact?.address_line2 || '',
+      city: currentUser.contact?.city || '',
+      country: currentUser.contact?.country || 'Kenya',
+      postal_code: currentUser.contact?.postal_code || '',
+    });
+    setProfilePhoto(currentUser.profile_photo_url || '');
+  }, [page, currentUser]);
+
   const loadChat = async () => {
     setChatLoading(true);
     setChatError('');
     try {
       const users = await getChatUsers();
-      setChatUsers(users.data || []);
-      if (!chatPeer && users.data?.[0]) setChatPeer(String(users.data[0].id));
+      const allUsers = users.data || [];
+      const targetUsers = getManagerChatPeers(allUsers, chatTarget);
+      setChatUsers(targetUsers);
+      if (!chatPeer && targetUsers.length === 1) setChatPeer(String(targetUsers[0].id));
+      else if (!chatPeer && !chatTarget && targetUsers[0]) setChatPeer(String(targetUsers[0].id));
+      if (chatTarget?.role === 'manager' && targetUsers.length === 0) {
+        setChatError('No active manager is assigned to this department. Contact your administrator to assign one.');
+      }
     } catch (error) { setChatError(error.message); }
     finally { setChatLoading(false); }
   };
 
-  // Chat is loaded when the panel opens; the authenticated user remains stable for this view.
+  // Reload peers when the conversation target changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (showChat) loadChat(); }, [showChat]);
+  useEffect(() => { if (showChat) loadChat(); }, [showChat, chatTarget]);
   useEffect(() => {
     if (!showChat || !chatPeer) return undefined;
     setChatLoading(true);
@@ -771,6 +1087,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     }
     setDecisionDialog({ request, decision });
     setDecisionComment('');
+    setDecisionSignature(currentUser?.full_name || currentUser?.name || '');
   };
 
   const submitDecision = async () => {
@@ -781,10 +1098,15 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
       setMessage({ type: 'error', text: 'A reason of at least 10 characters is required.' });
       return;
     }
+    if (!decisionSignature.trim()) {
+      setMessage({ type: 'error', text: 'Enter the immediate supervisor signature.' });
+      return;
+    }
     try {
-      await decideLeaveRequest(request.id, decision, comment);
+      await decideLeaveRequest(request.id, decision, comment, decisionSignature.trim());
       setDecisionDialog(null);
       setDecisionComment('');
+      setDecisionSignature('');
       setMessage({ type: 'success', text: `Leave request ${decision}d.` });
       await loadData();
     } catch (error) {
@@ -795,7 +1117,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const verifyRequest = async (requestId) => {
     try {
       const response = await fetch(apiUrl(`/api/leave/requests/${requestId}/verify-complete`), { method: 'POST', headers: { Authorization: `Bearer ${getAuthToken()}` } });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
       if (!response.ok) throw new Error(payload.error?.message || 'Unable to verify leave request.');
       setMessage({ type: 'success', text: payload.message });
       await loadData();
@@ -805,14 +1127,59 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
   const openRequestView = (request, view) => setRequestView({ request, view });
 
   const openRequestChat = (request) => {
-    const peerId = currentUser.id === request.user_id ? request.handover_user_id : request.user_id;
+    const isEmployeeRequest = currentUser.id === request.user_id;
+    let peerId = null;
+    if (isEmployeeRequest) {
+      peerId = request.handover_user_id || request.manager_id || request.supervisor_id;
+    } else {
+      peerId = request.user_id;
+    }
     if (!peerId) {
       setMessage({ type: 'error', text: 'No chat participant is available for this request.' });
       return;
     }
-    setChatPeer(String(peerId));
-    setRequestView(null);
-    setShowChat(true);
+    navigate('/dashboard/chat', { state: { chatPeer: String(peerId) } });
+  };
+
+  const getChatStage = (request) => {
+    const state = String(request?.workflow_state || '').trim().toLowerCase();
+    if (state === 'handover_pending') return 'delegate';
+    if (['team_leader_pending', 'department_manager_pending', 'general_manager_pending'].includes(state)
+    ) return 'manager';
+    return null;
+  };
+
+  const getChatPeerForStatus = (request) => {
+    const stage = getChatStage(request);
+    if (stage === 'delegate') return request.handover_user_id;
+    if (stage === 'manager') return request.pending_approver_id || request.manager_id || request.approver_id;
+    return null;
+  };
+
+  const openStatusChat = (request) => {
+    const stage = getChatStage(request);
+    if (stage === 'delegate') {
+      const peerId = getChatPeerForStatus(request);
+      if (!peerId || Number(peerId) === Number(currentUser?.id)) {
+        setMessage({ type: 'error', text: 'No delegate is assigned for this request yet.' });
+        return;
+      }
+      navigate('/dashboard/chat', { state: { chatPeer: String(peerId) } });
+      return;
+    }
+
+    if (stage !== 'manager') return;
+    const peerId = getChatPeerForStatus(request);
+    navigate('/dashboard/chat', {
+      state: {
+        chatTarget: {
+          role: 'manager',
+          department: request.department_name,
+          departmentId: request.department_id,
+          peerId: peerId && Number(peerId) !== Number(currentUser?.id) ? Number(peerId) : null,
+        },
+      },
+    });
   };
 
   const chaseDelegate = async (request) => {
@@ -866,8 +1233,277 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
     URL.revokeObjectURL(link.href);
   };
 
+  if (page === 'dashboard' && !isSuperAdmin) {
+    return <DashboardLanding
+      currentUser={currentUser}
+      tier={dashboardTier}
+      departmentName={assignedDepartment}
+      overview={overview}
+      pendingRequests={pendingRequests}
+      availableDays={availableDays}
+      pendingCount={pendingCount}
+      usedDays={usedDays}
+      loading={loading}
+      message={message}
+      canAccessSalesReports={canAccessSalesReports}
+      isSalesRepresentative={isSalesEmployee}
+      canViewEmployeePerformance={canViewEmployeePerformance}
+      canAccessDebtCollection={canAccessDebtCollection}
+      onNavigate={(target) => navigate(pagePaths[target] || '/dashboard')}
+    />;
+  }
+
+  if (page !== 'legacy') {
+    const pageTitles = {
+      dashboard: 'Dashboard',
+      'apply-leave': 'Apply for leave',
+      'my-leave': 'My leave',
+      history: 'Leave history',
+      delegations: 'Handover reports',
+      chat: 'Team chat',
+      approvals: 'Leave approvals',
+      'hr-verification': 'HR verification',
+      calendar: 'Team calendar',
+      'sales-reports': 'Sales reports',
+      'debt-collection': 'Debt collection',
+      'hr-module': 'HR module',
+      employees: 'Employee directory',
+      departments: 'Departments',
+      profile: 'Edit profile',
+      'dashboard-settings': 'Dashboard settings',
+      'leave-policies': 'Leave policies & settings',
+      'leave-balances': 'Employee leave balances',
+      'leave-management-history': 'Employee leave history',
+      admin: 'System administration',
+    };
+    const pageTitle = pageTitles[page] || 'Dashboard';
+    const openPage = (target) => navigate(pagePaths[target] || '/dashboard');
+    const renderLeaveRequests = (requests) => requests.length === 0
+      ? <p className="leave-empty">No leave requests to display.</p>
+      : <div className="leave-table-wrap"><table className="leave-table"><thead><tr><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th></tr></thead><tbody>{requests.map((request) => <tr key={request.id}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td></tr>)}</tbody></table></div>;
+
+    return (
+      <main className="leave-main dashboard-page" aria-labelledby="dashboard-page-title">
+        <header className="leave-header">
+          <div>
+            <p className="leave-kicker">{isSuperAdmin ? 'ADMINISTRATION' : canViewEmployeePerformance && page === 'sales-reports' ? 'MANAGEMENT REPORTING' : 'EMPLOYEE PORTAL'}</p>
+            <h1 id="dashboard-page-title">{pageTitle}</h1>
+            <p className="leave-muted">{page === 'dashboard'
+              ? `Good day, ${currentUser?.name || currentUser?.full_name || 'there'}.`
+              : canViewEmployeePerformance && page === 'sales-reports'
+                ? 'Review performance and registration analytics for every employee in your reporting scope.'
+                : `Manage ${pageTitle.toLowerCase()} for your account and team.`}</p>
+          </div>
+          {page === 'dashboard' && <div className="leave-header-actions"><button className="leave-primary-button leave-apply-button" type="button" onClick={() => openPage('apply-leave')}>Apply for leave</button></div>}
+        </header>
+
+        {message && <div className={`leave-alert ${message.type}`} role="status">{message.text}</div>}
+        {loading && <div className="leave-loading" role="status">Loading {pageTitle.toLowerCase()}…</div>}
+
+        {['dashboard', 'admin'].includes(page) && canManageLeaveSettings && (
+          <section className="leave-section admin-leave-shortcuts" aria-labelledby="dashboard-leave-management-title">
+            <div className="leave-section-heading">
+              <div>
+                <p className="leave-kicker">SYSTEM ADMINISTRATION</p>
+                <h2 id="dashboard-leave-management-title">Leave management</h2>
+              </div>
+            </div>
+            <p>Configure leave entitlements, review employee balances, and inspect leave request history.</p>
+            <div className="dashboard-page-links">
+              <button type="button" className="leave-secondary-button" onClick={() => openPage('leave-policies')}>Leave policies &amp; settings</button>
+              <button type="button" className="leave-secondary-button" onClick={() => openPage('leave-balances')}>Employee leave balances</button>
+              <button type="button" className="leave-secondary-button" onClick={() => openPage('leave-management-history')}>Employee leave history</button>
+            </div>
+          </section>
+        )}
+
+        {!loading && page === 'dashboard' && (
+          <>
+            <section className="leave-stat-grid" aria-label="Leave summary">
+              <div className="leave-stat-card accent-blue"><span>Available days</span><strong>{availableDays}</strong><small>Across all leave types</small></div>
+              <div className="leave-stat-card accent-teal"><span>Days taken</span><strong>{usedDays}</strong><small>This leave year</small></div>
+              <div className="leave-stat-card accent-amber"><span>Pending requests</span><strong>{pendingCount}</strong><small>Awaiting a decision</small></div>
+            </section>
+            <div className="dashboard-page-links">
+              <button type="button" className="leave-secondary-button" onClick={() => openPage('my-leave')}>View my leave</button>
+              <button type="button" className="leave-secondary-button" onClick={() => openPage('history')}>View leave history</button>
+              {canApprove && <button type="button" className="leave-secondary-button" onClick={() => openPage('approvals')}>Review approvals</button>}
+              {canApprove && <button type="button" className="leave-secondary-button" onClick={() => openPage('calendar')}>Open team calendar</button>}
+            </div>
+          </>
+        )}
+
+        {!loading && page === 'apply-leave' && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} balances={overview.balances} colleagues={chatUsers} onClose={() => openPage('dashboard')} onViewRequests={() => openPage('my-leave')} />}
+
+        {!loading && page === 'my-leave' && (
+          <>
+            <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">YOUR ENTITLEMENT</p><h2>Leave balances</h2></div></div><div className="leave-balance-grid">{overview.balances.length === 0 ? <p className="leave-empty">No leave balances have been configured yet.</p> : overview.balances.map((balance) => <article className="leave-balance-card" key={balance.leave_type_id}><div><h3>{balance.name}</h3><span>{balance.code}</span></div><strong>{balance.available_days}</strong><p>available of {balance.entitled_days} days</p><small>{balance.used_days} used · {balance.pending_days} pending</small></article>)}</div></section>
+            <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">TIME AWAY</p><h2>My leave requests</h2></div></div>{renderLeaveRequests(overview.requests)}</section>
+          </>
+        )}
+
+        {!loading && page === 'history' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">RECORDS</p><h2>Leave history</h2></div></div>{renderLeaveRequests(historyRequests)}</section>}
+
+        {!loading && page === 'delegations' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover reports assigned to you</h2></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <article className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)}</strong><p>{request.handover_statement || 'Briefing pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>Chat requester</button></div></div>{request.handover_statement ? <HandoverReportForm requestId={request.id} readOnly /> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</article>)}</section>}
+
+        {!loading && ['approvals', 'hr-verification'].includes(page) && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>{pageTitle}</h2></div><span className="section-meta">{pendingRequests.length} pending</span></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`page-approval-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
+
+        {!loading && page === 'calendar' && <TeamCalendarSection calendarDate={calendarDate} calendarDays={calendarDays} calendarOffset={calendarOffset} calendarRequestsForDay={calendarRequestsForDay} selectedCalendarDate={selectedCalendarDate} setSelectedCalendarDate={setSelectedCalendarDate} selectedCalendarEvents={selectedCalendarEvents} setCalendarMonth={setCalendarMonth} openRequestView={openRequestView} leaveTypeName={leaveTypeName} formatDate={formatDate} workflowLabel={workflowLabel} currentUser={currentUser} />}
+
+        {!loading && page === 'sales-reports' && canAccessSalesReports && <SalesReportsPage reports={salesReports} canEdit={canEditOperations && !canViewEmployeePerformance} canAddClient={isSalesEmployee && !canViewEmployeePerformance} canManageAgentRecords={isSalesEmployee || canEditOperations || isSuperAdmin} canViewEmployeePerformance={canViewEmployeePerformance || isSuperAdmin} isFieldAgent={organizationalRole === 'field_agent' && isSalesEmployee} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
+        {!loading && page === 'debt-collection' && canAccessDebtCollection && <DebtCollectionPage />}
+        {!loading && page === 'hr-module' && <HrModulePanel employees={adminUsers} departments={adminDepartments} isSuperAdmin={isSuperAdmin} onRefresh={loadSuperAdminData} />}
+        {!loading && page === 'employees' && <ManagedUsersPanel users={adminUsers} departments={adminDepartments} currentUser={currentUser} isSuperAdmin={isSuperAdmin} canCreateEmployee={isHr || isSuperAdmin || ['general_manager', 'department_manager', 'team_leader'].includes(currentUser.active_assignment?.organizational_role)} onRefresh={loadSuperAdminData} onMessage={(text, type = 'success') => setMessage({ type, text })} />}
+
+        {!loading && page === 'departments' && (
+          <section className="leave-section">
+            <div className="leave-section-heading">
+              <div><p className="leave-kicker">ORGANIZATION</p><h2>Departments</h2></div>
+            </div>
+            <form className="admin-form" onSubmit={createDepartment}>
+              <label>Department name<input value={adminDepartmentName} onChange={(event) => setAdminDepartmentName(event.target.value)} required /></label>
+              <div className="leave-modal-actions">
+                {editingDepartmentId && <button className="leave-secondary-button" type="button" onClick={() => { setEditingDepartmentId(null); setAdminDepartmentName(''); }}>Cancel edit</button>}
+                <button className="leave-primary-button" type="submit">{editingDepartmentId ? 'Save department' : 'Add department'}</button>
+              </div>
+            </form>
+            <div className="department-list">
+              {adminDepartments.map((department) => (
+                <div className="department-pill" key={department.id}>
+                  <span>{department.name}</span>
+                  <button className="edit-action" type="button" onClick={() => { setEditingDepartmentId(department.id); setAdminDepartmentName(department.name); }}>Edit</button>
+                  <button className="danger-action" type="button" onClick={() => deleteDepartment(department.id)}>Delete</button>
+                </div>
+              ))}
+              {adminDepartments.length === 0 && <p className="leave-empty">No departments configured.</p>}
+            </div>
+            {canConfigureDepartmentPages && adminDepartments.map((department) => (
+              <fieldset className="admin-form leave-fieldset" key={`department-pages-${department.id}`}>
+                <legend>{department.name} pages</legend>
+                <div className="department-page-options">
+                  {departmentPageOptions.map(([pageKey, label]) => (
+                    <label key={pageKey}>
+                      <input
+                        type="checkbox"
+                        checked={(departmentPageSettings[department.id] || []).includes(pageKey)}
+                        onChange={(event) => setDepartmentPageSettings((current) => {
+                          const pages = current[department.id] || [];
+                          return {
+                            ...current,
+                            [department.id]: event.target.checked
+                              ? [...pages, pageKey]
+                              : pages.filter((page) => page !== pageKey),
+                          };
+                        })}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="leave-primary-button"
+                  disabled={savingDepartmentPagesId === department.id}
+                  onClick={() => saveDepartmentPages(department.id)}
+                >
+                  {savingDepartmentPagesId === department.id ? 'Saving pages…' : 'Save department pages'}
+                </button>
+              </fieldset>
+            ))}
+          </section>
+        )}
+
+        {!loading && page === 'dashboard-settings' && (
+          <>
+            <section className="admin-card dashboard-feature-settings" aria-label="Dashboard feature settings">
+              <div className="leave-section-heading">
+                <div><p className="leave-kicker">SYSTEM SETTINGS</p><h2>Dashboard feature access</h2></div>
+              </div>
+              <div className="dashboard-feature-list">
+                {Object.keys(dashboardRoleFeatures).map((roleName) => (
+                  <div className="dashboard-feature-row" key={roleName}>
+                    <span>{roleName.replace('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}</span>
+                    <div className="dashboard-feature-toggle-group">
+                      {['sales_reports', 'debt_collection'].map((feature) => (
+                        <label className="dashboard-feature-control" key={feature}>
+                          <input
+                            type="checkbox"
+                            checked={dashboardRoleFeatures[roleName]?.[feature] !== false}
+                            onChange={(event) => updateDashboardRoleFeature(roleName, feature, event.target.checked)}
+                            aria-label={`${feature.replace('_', ' ')} for ${roleName}`}
+                          />
+                          <span>{feature === 'sales_reports' ? 'Sales Reports' : 'Debt Collection'}</span>
+                          <strong>{dashboardRoleFeatures[roleName]?.[feature] === false ? 'Disabled' : 'Enabled'}</strong>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <LocationTrackingScheduleSettings />
+          </>
+        )}
+
+        {!loading && page === 'admin' && <>
+          <section className="admin-stat-grid">
+            <div className="leave-stat-card accent-blue"><span>Total users</span><strong>{adminUsers.length}</strong></div>
+            <div className="leave-stat-card accent-teal"><span>Active users</span><strong>{adminHealth.active_users || 0}</strong></div>
+            <div className="leave-stat-card accent-amber"><span>Pending users</span><strong>{adminHealth.pending_users || 0}</strong></div>
+          </section>
+          {isSuperAdmin && <section className="admin-card system-test-data-panel" aria-labelledby="system-test-data-title">
+            <div className="leave-section-heading">
+              <div><p className="leave-kicker">DEVELOPMENT TOOLS</p><h2 id="system-test-data-title">System test data</h2></div>
+            </div>
+            <p>Load synthetic, clearly marked sample records for Sales &amp; Marketing, Customer Care, and Debt Collection. Actions are restricted to a local development database and use existing assigned staff.</p>
+            <div className="dashboard-page-links">
+              <button
+                className="leave-primary-button"
+                type="button"
+                onClick={() => runSystemTestDataAction('load')}
+                disabled={systemTestDataBusy}
+              >{systemTestDataBusy ? 'Working…' : 'Load test data'}</button>
+            </div>
+            <label className="system-test-data-confirmation">
+              To delete only marked synthetic records, enter <strong>DELETE SYSTEM TEST DATA</strong>.
+              <input
+                value={systemTestDataConfirmation}
+                onChange={(event) => setSystemTestDataConfirmation(event.target.value)}
+                autoComplete="off"
+                disabled={systemTestDataBusy}
+                aria-label="Test data deletion confirmation"
+              />
+            </label>
+            <button
+              className="leave-secondary-button"
+              type="button"
+              onClick={() => runSystemTestDataAction('delete')}
+              disabled={systemTestDataBusy || systemTestDataConfirmation !== 'DELETE SYSTEM TEST DATA'}
+            >Delete test data</button>
+          </section>}
+          {(isSuperAdmin || isHr) && <LocationSharingAdminPanel />}
+          <section className="leave-section">
+            <h2>Administration pages</h2>
+            <div className="dashboard-page-links">
+              <button className="leave-secondary-button" type="button" onClick={() => openPage('employees')}>Employee directory</button>
+              <button className="leave-secondary-button" type="button" onClick={() => openPage('departments')}>Departments</button>
+              <button className="leave-secondary-button" type="button" onClick={() => openPage('dashboard-settings')}>Dashboard settings</button>
+            </div>
+          </section>
+        </>}
+
+        {!loading && page === 'profile' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">YOUR DETAILS</p><h2>Edit profile</h2></div></div><form onSubmit={saveProfile}><label>Profile photo<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={changeProfilePhoto} /><span className="leave-helper">JPG, PNG, GIF, or WEBP up to 5 MB.</span></label>{profilePhoto && <button type="button" className="leave-text-button" onClick={removeProfilePhoto}>Remove photo</button>}<div className="leave-form-row">{[['employee_name', 'Employee name'], ['job_position_title', 'Job position title']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><div className="leave-form-row">{[['employer', 'Employer'], ['department', 'Department']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><fieldset className="leave-fieldset"><legend>Contact and address</legend><div className="leave-form-row">{[['contact_phone', 'Phone'], ['contact_email', 'Email']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div><div className="leave-form-row">{[['address_line1', 'Address'], ['address_line2', 'Address line 2'], ['city', 'City'], ['country', 'Country'], ['postal_code', 'Postal code']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div></fieldset><div className="leave-modal-actions"><button type="submit" className="leave-primary-button">Save profile</button></div></form></section>}
+
+        {!loading && page === 'chat' && <section className="leave-section chat-page"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM CHAT</p><h2>Messages</h2></div></div>{chatTarget?.role === 'manager' && <p className="leave-muted">Choose a manager for {chatTarget.department || 'your department'}.</p>}<label>{chatTarget?.role === 'manager' ? 'Manager' : 'Chat with'}<select value={chatPeer} onChange={(event) => setChatPeer(event.target.value)}><option value="">{chatTarget?.role === 'manager' ? 'Select a manager' : 'Select a colleague'}</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{chatError && <div className="leave-alert error chat-error" role="alert">{chatError}<button type="button" className="leave-text-button" onClick={loadChat}>Try again</button></div>}<div className="chat-messages" aria-live="polite">{chatLoading ? <p className="leave-empty">Loading messages...</p> : chatMessages.length === 0 ? <p className="leave-empty">No messages yet. Start the conversation below.</p> : chatMessages.map((item) => <div className={`chat-message ${item.sender_id === currentUser.id ? 'mine' : ''}`} key={item.id}><span>{item.sender_name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>{item.body}</p></div>)}</div><form className="chat-compose" onSubmit={submitChat}><input value={chatBody} onChange={(event) => setChatBody(event.target.value)} placeholder="Write a message" maxLength="2000" disabled={!chatPeer || chatLoading} /><button className="leave-primary-button" type="submit" disabled={!chatPeer || !chatBody.trim() || chatLoading}>Send</button></form></section>}
+
+        {requestView && <section className="leave-section"><h2>Leave request #{requestView.request.id}</h2><p>{requestView.request.requester_name || currentUser.name} · {leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</p><p>{requestView.request.reason || requestView.request.handover_statement || 'Request details'}</p><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close details</button></section>}
+        {decisionDialog && <section className="leave-section"><h2>Complete approval</h2><p>Decision: {decisionDialog.decision}</p><label>Comment<textarea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></label><label>Supervisor signature<input value={decisionSignature} onChange={(event) => setDecisionSignature(event.target.value)} /></label><div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setDecisionDialog(null)}>Cancel</button><button type="button" className="leave-primary-button" onClick={submitDecision}>Confirm</button></div></section>}
+      </main>
+    );
+  }
+
   return (
-    <AppShell currentUser={{ ...currentUser, unread_chat_count: unreadChatCount, dashboard_features: dashboardFeatures }} canApprove={canApprove} onOpenChat={() => setShowChat(true)} onOpenProfile={openProfile} onNavigate={navigateToSection} activeSection={activeSection} onLogout={handleLogout}>
+    <div className="legacy-dashboard-content">
       <main className="leave-main">
         <header className="leave-header">
           <div>
@@ -896,7 +1532,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           <section className="super-admin-panel" id="dashboard" aria-label="System administration">
             <section className="admin-card" id="pending-leave-approvals">
               <div className="leave-section-heading"><div><p className="leave-kicker">LEAVE WORKFLOW</p><h3>Pending Leave Approvals</h3><p className="leave-muted">Review every pending leave request across the organization.</p></div><span className="section-meta">{pendingRequests.length} pending</span></div>
-              <div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No pending leave approvals.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`super-pending-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div>
+              <div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No pending leave approvals.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`super-pending-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div>
             </section>
 
             <div className="admin-grid">
@@ -908,13 +1544,47 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                     <label>Role<select value={adminForm.role} onChange={(event) => setAdminForm({ ...adminForm, role: event.target.value })}><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr_admin">HR Admin</option><option value="system_admin">System Admin</option></select></label>
                   </div>
                   <div className="leave-form-row">
-                    <label>Email<input type="email" value={adminForm.email} onChange={(event) => setAdminForm({ ...adminForm, email: event.target.value })} required /></label>
+                    <label>Official email<input type="email" autoComplete="email" value={adminForm.email} onChange={(event) => setAdminForm({ ...adminForm, email: event.target.value })} required /></label>
                     <label>Phone<input value={adminForm.phone_number} onChange={(event) => setAdminForm({ ...adminForm, phone_number: event.target.value })} required /></label>
                   </div>
                   <div className="leave-form-row">
-                    <label>Department<select value={adminForm.department} onChange={(event) => setAdminForm({ ...adminForm, department: event.target.value })} required><option value="">Select department</option>{adminDepartments.map((department) => <option value={department.name} key={department.id}>{department.name}</option>)}</select></label>
-                    <label>Job title<input value={adminForm.job_position_title} onChange={(event) => setAdminForm({ ...adminForm, job_position_title: event.target.value })} /></label>
+                    {adminForm.organizational_role === 'general_manager' ? (
+                      <label>Department<input value="All" readOnly /></label>
+                    ) : (
+                      <label>Department<select value={adminForm.department} onChange={(event) => setAdminForm({
+                        ...adminForm,
+                        department: event.target.value,
+                        department_role: departmentRoleFor(event.target.value),
+                        manager_id: '',
+                      })} required><option value="">Select department</option>{adminDepartments.map((department) => <option value={department.name} key={department.id}>{department.name}</option>)}</select></label>
+                    )}
+                    <label>Organizational role<select value={adminForm.organizational_role} onChange={(event) => setAdminForm({
+                      ...adminForm,
+                      organizational_role: event.target.value,
+                      job_position_title: organizationRoleLabels[event.target.value],
+                      department: event.target.value === 'general_manager'
+                        ? 'All'
+                        : adminForm.department === 'All' ? '' : adminForm.department,
+                      department_role: event.target.value === 'general_manager'
+                        ? ''
+                        : departmentRoleFor(adminForm.department === 'All' ? '' : adminForm.department),
+                      manager_id: '',
+                    })}>{Object.entries(organizationRoleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                   </div>
+                  {adminForm.organizational_role !== 'general_manager' && <div className="leave-form-row">
+                    <label>Reports to — {organizationRoleLabels[managerRole]}<select value={adminForm.manager_id} onChange={(event) => setAdminForm({ ...adminForm, manager_id: event.target.value })} required>
+                      <option value="">Select manager</option>
+                      {managerCandidates.map((manager) => <option value={manager.id} key={manager.id}>{manager.name} — {manager.department}</option>)}
+                    </select></label>
+                  </div>}
+                  {['field_agent', 'team_leader', 'department_manager'].includes(adminForm.organizational_role) && <div className="leave-form-row">
+                    <label>Department role<select value={adminForm.department_role} onChange={(event) => setAdminForm({ ...adminForm, department_role: event.target.value })} required>
+                      <option value="">Select department access</option>
+                      {departmentRoleFor(adminForm.department) === 'sales' && <option value="sales">Sales and Marketing</option>}
+                      {departmentRoleFor(adminForm.department) === 'debt_collection' && <option value="debt_collection">Debt Collection</option>}
+                      {departmentRoleFor(adminForm.department) === 'customer_care' && <option value="customer_care">Customer Care</option>}
+                    </select></label>
+                  </div>}
                   <div className="leave-form-row">
                     <label>Employer<input value={adminForm.employer} onChange={(event) => setAdminForm({ ...adminForm, employer: event.target.value })} /></label>
                     <label>Password<input type="password" value={adminForm.password} onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })} required /></label>
@@ -922,37 +1592,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                   
                   <div className="leave-modal-actions"><button type="submit" className="leave-primary-button">Create user</button></div>
                 </form>
-                <div className="admin-list-wrap">
-                  <h4>All users</h4>
-                  <div className="leave-table-wrap compact-table">
-                    <table className="leave-table">
-                      <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Department</th><th>Actions</th></tr></thead>
-                      <tbody>
-                        {adminUsers.length === 0 ? <tr><td colSpan="5">No users yet.</td></tr> : adminUsers.map((user) => (
-                          <tr key={user.id}>
-                            <td>{user.full_name}</td>
-                            <td>
-                              <select value={user.role} onChange={(event) => updateAdminUserRole(user.id, event.target.value, user.is_superuser)}>
-                                <option value="employee">Employee</option>
-                                <option value="manager">Manager</option>
-                                <option value="hr_admin">HR Admin</option>
-                              </select>
-                              
-                            </td>
-                            <td><select value={user.account_status === 'pending' ? 'pending' : (user.state || (user.is_active ? 'active' : 'deactivated'))} onChange={(event) => updateAdminUserStatus(user.id, event.target.value)} disabled={user.id === currentUser.id || user.account_status === 'pending'}><option value="pending">Pending approval</option><option value="active">Active</option><option value="deactivated">Deactivated</option><option value="archived">Archived</option></select></td>
-                            <td>{user.department || user.department_details?.name || '—'}</td>
-                            <td>
-                              {user.account_status === 'pending' && <button className="leave-text-button edit-action" type="button" onClick={() => approveAccount(user.id)}>Approve</button>}
-                              <button className="leave-text-button edit-action" type="button" onClick={() => startAdminUserEdit(user)}>Edit</button>
-                              <button className="leave-text-button danger-action" type="button" onClick={() => deleteAdminUser(user.id)}>Delete</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                {editingAdminUserId && <div className="leave-modal-backdrop employee-edit-backdrop" role="presentation"><div className="leave-modal employee-edit-modal" role="dialog" aria-modal="true" aria-labelledby="admin-user-edit-title"><div className="leave-modal-heading"><div><p className="leave-kicker">AUTHORITY</p><h2 id="admin-user-edit-title">Edit user profile</h2><p className="employee-edit-subtitle">Update {adminUsers.find((user) => user.id === editingAdminUserId)?.full_name || 'this user'}'s details and access.</p></div><button type="button" className="leave-close" onClick={() => setEditingAdminUserId(null)} aria-label="Close user editor">×</button></div><form onSubmit={saveAdminUser} className="admin-form admin-edit-form"><div className="employee-edit-section"><h3>Profile details</h3><div className="leave-form-row"><label>Full name<input value={adminUserForm.full_name} onChange={(event) => setAdminUserForm({ ...adminUserForm, full_name: event.target.value })} required /></label><label>Email<input type="email" value={adminUserForm.email} onChange={(event) => setAdminUserForm({ ...adminUserForm, email: event.target.value })} required /></label></div><div className="leave-form-row"><label>Phone<input value={adminUserForm.phone_number} onChange={(event) => setAdminUserForm({ ...adminUserForm, phone_number: event.target.value })} required /></label><label>Department<input value={adminUserForm.department} onChange={(event) => setAdminUserForm({ ...adminUserForm, department: event.target.value })} required /></label></div><div className="leave-form-row"><label>Job title<input value={adminUserForm.job_position_title} onChange={(event) => setAdminUserForm({ ...adminUserForm, job_position_title: event.target.value })} /></label><label>Employer<input value={adminUserForm.employer} onChange={(event) => setAdminUserForm({ ...adminUserForm, employer: event.target.value })} /></label></div></div>{isSuperAdmin && <div className="employee-edit-section"><h3>Access level</h3><label>Role<select value={adminUserForm.role} onChange={(event) => setAdminUserForm({ ...adminUserForm, role: event.target.value })}><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr_admin">HR Admin</option><option value="system_admin">System Admin</option></select></label><p className="employee-edit-note">Role changes affect dashboard access and approval permissions.</p></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button action-reset" onClick={() => setEditingAdminUserId(null)}>Cancel</button><button type="submit" className="leave-primary-button">Save changes</button></div></form></div></div>}
+                {editingAdminUserId && <div className="leave-modal-backdrop employee-edit-backdrop" role="presentation"><div className="leave-modal employee-edit-modal" role="dialog" aria-modal="true" aria-labelledby="admin-user-edit-title"><div className="leave-modal-heading"><div><p className="leave-kicker">AUTHORITY</p><h2 id="admin-user-edit-title">Edit user profile</h2><p className="employee-edit-subtitle">Update {adminUsers.find((user) => user.id === editingAdminUserId)?.full_name || 'this user'}'s details and access.</p></div><button type="button" className="leave-close" onClick={() => setEditingAdminUserId(null)} aria-label="Close user editor">×</button></div><form onSubmit={saveAdminUser} className="admin-form admin-edit-form"><div className="employee-edit-section"><h3>Profile details</h3><div className="leave-form-row"><label>Full name<input value={adminUserForm.full_name} onChange={(event) => setAdminUserForm({ ...adminUserForm, full_name: event.target.value })} required /></label><label>Official email<input type="email" autoComplete="email" value={adminUserForm.email} onChange={(event) => setAdminUserForm({ ...adminUserForm, email: event.target.value })} required /></label></div><div className="leave-form-row"><label>Phone<input autoComplete="tel" value={adminUserForm.phone_number} onChange={(event) => setAdminUserForm({ ...adminUserForm, phone_number: event.target.value })} required /></label><label>Department<select value={adminUserForm.department} onChange={(event) => setAdminUserForm({ ...adminUserForm, department: event.target.value })} required><option value="">Select department</option>{adminUserForm.department && !adminDepartments.some((department) => department.name === adminUserForm.department) && <option value={adminUserForm.department}>{adminUserForm.department}</option>}{adminDepartments.map((department) => <option value={department.name} key={department.id}>{department.name}</option>)}</select></label></div><div className="leave-form-row"><label>Job title<input value={adminUserForm.job_position_title} onChange={(event) => setAdminUserForm({ ...adminUserForm, job_position_title: event.target.value })} /></label><label>Employer<input value={adminUserForm.employer} onChange={(event) => setAdminUserForm({ ...adminUserForm, employer: event.target.value })} /></label></div></div>{isSuperAdmin && editingAdminUserId !== currentUser.id && <div className="employee-edit-section"><h3>Account status</h3><label>Status<select value={adminUserForm.status} onChange={(event) => setAdminUserForm({ ...adminUserForm, status: event.target.value })}><option value="pending">Pending approval</option><option value="active">Activate</option><option value="deactivated">Deactivate</option><option value="archived">Archive</option></select></label><button type="button" className="leave-secondary-button" onClick={() => updateAdminUserStatus(editingAdminUserId, adminUserForm.status)}>Update status</button></div>}{isSuperAdmin && <div className="employee-edit-section"><h3>Access level</h3><label>Role<select value={adminUserForm.role} onChange={(event) => setAdminUserForm({ ...adminUserForm, role: event.target.value })}><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr_admin">HR Admin</option><option value="system_admin">System Admin</option></select></label><p className="employee-edit-note">Role changes affect dashboard access and approval permissions.</p></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button action-reset" onClick={() => setEditingAdminUserId(null)}>Cancel</button><button type="submit" className="leave-primary-button">Save changes</button></div></form></div></div>}
               </div>
 
               <div className="admin-card" id="departments">
@@ -1041,7 +1681,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                 </ul>
               </div>
             </div>
-            {canAccessSalesReports && <SalesReportsPage reports={salesReports} canEdit={canApprove || isSuperAdmin} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
+            {canAccessSalesReports && <SalesReportsPage reports={salesReports} canEdit={canEditOperations && !canViewEmployeePerformance} canAddClient={isSalesEmployee && !canViewEmployeePerformance} canManageAgentRecords={isSalesEmployee || canEditOperations || isSuperAdmin} canViewEmployeePerformance={canViewEmployeePerformance || isSuperAdmin} isFieldAgent={organizationalRole === 'field_agent' && isSalesEmployee} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
         {canAccessDebtCollection && activeSection === 'debt-collection' && <DebtCollectionPage />}
           </section>
         )}
@@ -1083,11 +1723,11 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
           </section>
         )}
 
-        {canApprove && <ManagedUsersPanel users={adminUsers} departments={adminDepartments} currentUser={currentUser} isSuperAdmin={isSuperAdmin} canCreateEmployee={currentUser.role === 'manager'} focusCreate={activeSection === 'create-employee'} onRefresh={loadSuperAdminData} onMessage={(text, type = 'success') => setMessage({ type, text })} />}
+        {canApprove && <ManagedUsersPanel users={adminUsers} departments={adminDepartments} currentUser={currentUser} isSuperAdmin={isSuperAdmin} canCreateEmployee={currentUser.role === 'manager' || ['general_manager', 'department_manager', 'team_leader'].includes(currentUser.active_assignment?.organizational_role)} focusCreate={activeSection === 'create-employee'} onRefresh={loadSuperAdminData} onMessage={(text, type = 'success') => setMessage({ type, text })} />}
         {false && isHr && <HrOperationsPanel leaveTypes={adminLeaveTypes} departments={adminDepartments} audit={adminAudit} />}
         {false && isHr && <HrModulePanel employees={adminUsers} departments={adminDepartments} isSuperAdmin={isSuperAdmin} onRefresh={loadSuperAdminData} />}
 
-        {!isSuperAdmin && (activeSection === 'sales-reports' && canAccessSalesReports ? <SalesReportsPage reports={salesReports} canEdit={canApprove || isSuperAdmin} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} /> : activeSection === 'debt-collection' && canAccessDebtCollection ? <DebtCollectionPage /> : (loading ? <div className="leave-loading">Loading your leave information...</div> : (
+        {!isSuperAdmin && (activeSection === 'sales-reports' && canAccessSalesReports ? <SalesReportsPage reports={salesReports} canEdit={canEditOperations && !canViewEmployeePerformance} canAddClient={isSalesEmployee && !canViewEmployeePerformance} canManageAgentRecords={isSalesEmployee || canEditOperations || isSuperAdmin} canViewEmployeePerformance={canViewEmployeePerformance} isFieldAgent={organizationalRole === 'field_agent' && isSalesEmployee} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} /> : activeSection === 'debt-collection' && canAccessDebtCollection ? <DebtCollectionPage /> : (loading ? <div className="leave-loading">Loading your leave information...</div> : (
           <>
             <section className="leave-stat-grid" id="overview" aria-label="Leave summary">
               <div className="leave-stat-card accent-blue"><span>Available days</span><strong>{availableDays}</strong><small>Across all leave types</small></div>
@@ -1095,7 +1735,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
               <div className="leave-stat-card accent-amber"><span>Pending requests</span><strong>{pendingCount}</strong><small>Awaiting a decision</small></div>
             </section>
 
-            {isSalesEmployee && canAccessSalesReports && <SalesDailyReportForm onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
+            {isSalesEmployee && canAccessSalesReports && <SalesDailyReportForm isFieldAgent={isSalesEmployee} onSubmitted={(report) => setSalesReports((current) => [report, ...current])} />}
             {canAccessSalesReports && <SalesReportsPanel reports={salesReports} />}
             {canAccessDebtCollection && <DebtCollectionPage compact />}
 
@@ -1108,13 +1748,13 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
               <section className="leave-section admin-feature-section" id="reports">
                 <div className="leave-section-heading"><div><p className="leave-kicker">OPERATIONS INSIGHT</p><h2>Leave reports</h2><p className="leave-muted">Filter, inspect, and export leave activity.</p></div><div className="report-actions"><button type="button" className="leave-secondary-button action-export" onClick={exportReport}>Export CSV</button></div></div>
                 <div className="report-card-grid"><div className="report-card"><span>Matching requests</span><strong>{reportFilteredRequests.length}</strong></div><div className="report-card"><span>Approved</span><strong>{reportApproved}</strong></div><div className="report-card"><span>Rejected</span><strong>{reportRejected}</strong></div><div className="report-card"><span>Days requested</span><strong>{reportFilteredRequests.reduce((sum, request) => sum + Number(request.days_requested || 0), 0)}</strong></div></div>
-                <div className="report-filter-bar"><label>From<input type="date" value={reportFilters.from} onChange={(event) => setReportFilters({ ...reportFilters, from: event.target.value })} /></label><label>To<input type="date" value={reportFilters.to} onChange={(event) => setReportFilters({ ...reportFilters, to: event.target.value })} /></label><label>Employee<input placeholder="Search name" value={reportFilters.user} onChange={(event) => setReportFilters({ ...reportFilters, user: event.target.value })} /></label><label>Status<select value={reportFilters.status} onChange={(event) => setReportFilters({ ...reportFilters, status: event.target.value })}><option value="">All statuses</option><option value="handover_pending">Waiting for delegate</option><option value="supervisor_pending">Waiting for manager</option><option value="hr_verification">Waiting for HR</option><option value="approved">Approved</option><option value="completed">Completed</option><option value="rejected">Rejected</option><option value="deferred">Deferred</option></select></label><label>Leave type<select value={reportFilters.leaveType} onChange={(event) => setReportFilters({ ...reportFilters, leaveType: event.target.value })}><option value="">All leave types</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><label>Region<input placeholder="City or country" value={reportFilters.region} onChange={(event) => setReportFilters({ ...reportFilters, region: event.target.value })} /></label><button type="button" className="leave-text-button" onClick={() => setReportFilters({ from: '', to: '', user: '', status: '', leaveType: '', region: '' })}>Clear</button></div>
+                <div className="report-filter-bar"><label>From<input type="date" value={reportFilters.from} onChange={(event) => setReportFilters({ ...reportFilters, from: event.target.value })} /></label><label>To<input type="date" value={reportFilters.to} onChange={(event) => setReportFilters({ ...reportFilters, to: event.target.value })} /></label><label>Employee<input placeholder="Search name" value={reportFilters.user} onChange={(event) => setReportFilters({ ...reportFilters, user: event.target.value })} /></label><label>Status<select value={reportFilters.status} onChange={(event) => setReportFilters({ ...reportFilters, status: event.target.value })}><option value="">All statuses</option><option value="handover_pending">Waiting for delegate</option><option value="team_leader_pending">Waiting for Team Leader</option><option value="department_manager_pending">Waiting for Department Manager</option><option value="general_manager_pending">Waiting for General Manager</option><option value="hr_verification">Waiting for HR</option><option value="approved">Approved</option><option value="completed">Completed</option><option value="rejected">Rejected</option><option value="deferred">Deferred</option></select></label><label>Leave type<select value={reportFilters.leaveType} onChange={(event) => setReportFilters({ ...reportFilters, leaveType: event.target.value })}><option value="">All leave types</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><label>Region<input placeholder="City or country" value={reportFilters.region} onChange={(event) => setReportFilters({ ...reportFilters, region: event.target.value })} /></label><button type="button" className="leave-text-button" onClick={() => setReportFilters({ from: '', to: '', user: '', status: '', leaveType: '', region: '' })}>Clear</button></div>
                 <div className="report-view-tabs"><button type="button" className={reportMode === 'summary' ? 'is-active' : ''} onClick={() => setReportMode('summary')}>By leave type</button><button type="button" className={reportMode === 'details' ? 'is-active' : ''} onClick={() => setReportMode('details')}>Request details</button></div>
                 <div className="leave-table-wrap compact-table"><table className="leave-table"><thead><tr>{reportMode === 'summary' ? <><th>Leave type</th><th>Requests</th><th>Days requested</th></> : <><th>Employee</th><th>Department</th><th>Leave type</th><th>Dates</th><th>Region</th><th>Status</th></>}</tr></thead><tbody>{reportMode === 'summary' ? overview.types.map((type) => { const requests = reportFilteredRequests.filter((request) => request.leave_type_id === type.id); return <tr key={type.id}><td>{type.name}</td><td>{requests.length}</td><td>{requests.reduce((sum, request) => sum + Number(request.days_requested || 0), 0)}</td></tr>; }) : reportFilteredRequests.map((request) => <tr key={`report-${request.id}`}><td>{request.requester_name || request.user_name || 'Employee'}</td><td>{request.department_name || 'Unassigned'}</td><td>{leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{[request.city, request.country].filter(Boolean).join(', ') || '-'}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td></tr>)}</tbody></table></div>
               </section>
               <section className="leave-section admin-feature-section" id="compliance">
                 <div className="leave-section-heading"><div><p className="leave-kicker">CONTROL CHECKS</p><h2>Compliance</h2></div></div>
-                <div className="compliance-summary"><div><strong>{reportHandoverGaps}</strong><span>pending requests with handover gaps</span></div><div><strong>{pendingRequests.length - reportHandoverGaps}</strong><span>pending requests ready for review</span></div><button className="leave-primary-button" type="button" onClick={() => navigateToSection('approvals', '#approvals')}>Review approvals</button></div>
+                <div className="compliance-summary"><div><strong>{reportHandoverGaps}</strong><span>pending requests with handover gaps</span></div><div><strong>{pendingRequests.length - reportHandoverGaps}</strong><span>pending requests ready for review</span></div><button className="leave-primary-button" type="button" onClick={() => navigateToSection('approvals')}>Review approvals</button></div>
               </section>
             </>}
 
@@ -1136,15 +1776,15 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
             <section className="leave-section" id="requests">
               <div className="leave-section-heading"><div><p className="leave-kicker">TIME AWAY</p><h2>My leave requests</h2></div></div>
               <div className="leave-table-wrap">
-                {overview.requests.length === 0 ? <p className="leave-empty">You have not submitted any leave requests.</p> : <table className="leave-table"><thead><tr><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr></thead><tbody>{overview.requests.map((request) => <tr key={request.id}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.status === 'pending' && <button className="leave-text-button" onClick={() => cancelRequest(request.id)}>Cancel</button>}{Number(request.days_requested) > 2 && <button className="leave-text-button" onClick={() => setOpenHandoverId(openHandoverId === request.id ? null : request.id)}>{openHandoverId === request.id ? 'Hide handover' : 'Handover report'}</button>}</td></tr>)}</tbody></table>}
+                {overview.requests.length === 0 ? <p className="leave-empty">You have not submitted any leave requests.</p> : <table className="leave-table"><thead><tr><th>Department</th><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th><th>Actions</th></tr></thead><tbody>{overview.requests.map((request) => { const chatStage = getChatStage(request); return <tr key={request.id}><td>{request.department_name || 'Unassigned'}</td><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.status === 'pending' && <button type="button" className="leave-text-button" onClick={() => cancelRequest(request.id)}>Cancel</button>}{Number(request.days_requested) > 2 && <button type="button" className="leave-text-button" onClick={() => setOpenHandoverId(openHandoverId === request.id ? null : request.id)}>{openHandoverId === request.id ? 'Hide handover' : 'Handover report'}</button>}{chatStage && <button type="button" className="leave-text-button leave-request-chat-button" onClick={() => openStatusChat(request)}>Chat {chatStage}</button>}</td></tr>; })}</tbody></table>}
               </div>
-              {overview.requests.filter((request) => request.id === openHandoverId).map((request) => <HandoverReportForm key={request.id} requestId={request.id} onSubmitted={() => { setMessage({ type: 'success', text: 'Handover report submitted.' }); loadData(); }} />)}
+              {overview.requests.filter((request) => request.id === openHandoverId).map((request) => <HandoverReportForm key={request.id} requestId={request.id} onClose={() => setOpenHandoverId(null)} onSubmitted={() => { setMessage({ type: 'success', text: 'Handover report submitted.' }); loadData(); }} />)}
             </section>
 
             <section className="leave-section" id="history">
               <div className="leave-section-heading"><div><p className="leave-kicker">RECORDS</p><h2>Leave history</h2><p className="leave-muted">A complete record of your submitted leave requests.</p></div></div>
               <div className="leave-table-wrap">
-                {historyRequests.length === 0 ? <p className="leave-empty">Your leave history is empty.</p> : <table className="leave-table"><thead><tr><th>Leave type</th><th>Applied</th><th>Dates</th><th>Days</th><th>Status</th><th>Decision</th></tr></thead><tbody>{historyRequests.map((request) => <tr key={`history-${request.id}`}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{request.applied_at ? new Date(request.applied_at).toLocaleDateString() : '-'}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.decision_comment || (request.decided_at ? new Date(request.decided_at).toLocaleDateString() : 'Pending')}</td></tr>)}</tbody></table>}
+                {historyRequests.length === 0 ? <p className="leave-empty">Your leave history is empty.</p> : <table className="leave-table"><thead><tr><th>Leave type</th><th>Applied</th><th>Dates</th><th>Days</th><th>Status</th><th>Decision</th><th>Actions</th></tr></thead><tbody>{historyRequests.map((request) => { const chatStage = getChatStage(request); return <tr key={`history-${request.id}`}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{request.applied_at ? new Date(request.applied_at).toLocaleDateString() : '-'}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.decision_comment || (request.decided_at ? new Date(request.decided_at).toLocaleDateString() : 'Pending')}</td><td>{chatStage && <button type="button" className="leave-text-button leave-request-chat-button" onClick={() => openStatusChat(request)}>Chat {chatStage}</button>}</td></tr>; })}</tbody></table>}
               </div>
             </section>
 
@@ -1154,7 +1794,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
             </section>
 
             <section className="leave-section" id="delegations"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover report</h2><p className="leave-muted">Leave handovers assigned to you by colleagues.</p></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <div className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)} · {request.days_requested} days</strong><p>{request.handover_statement ? `Current status: ${request.handover_statement}` : 'Briefing: pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View Request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>Chat requester</button></div></div>{request.handover_statement && !request.handover_statement.startsWith('DECLINED:') ? <><p className="leave-muted">This handover has been actioned.</p><HandoverReportForm requestId={request.id} readOnly /></> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</div>)}</section>
-            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={isHr && !isSuperAdmin && request.workflow_state === 'handover_pending'} waitingForManager={isHr && !isSuperAdmin && request.workflow_state === 'supervisor_pending'} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
+            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
 
             {isSuperAdmin && (
               <>
@@ -1186,7 +1826,7 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
                                 </div>
                               ) : (userDuties[user.id] || []).join(', ') || 'No assigned duties'}
                             </td>
-                            <td><span className="user-status-redacted" aria-label="Status hidden"><span aria-hidden="true">{user.account_status === 'pending' ? 'Pending approval' : (user.state || (user.is_active ? 'active' : 'deactivated'))}</span></span></td>
+                            <td>{user.account_status === 'pending' ? 'Pending approval' : (user.state || (user.is_active ? 'Active' : 'Deactivated'))}</td>
                             <td>{user.phone_number}</td>
                             <td>{user.department || 'General'}</td>
                             <td>
@@ -1226,15 +1866,46 @@ const LeaveDashboard = ({ currentUser, onUserUpdated, handleLogout }) => {
         )))}
       </main>
 
-      {requestView && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide request-view-modal" role="dialog" aria-modal="true" aria-labelledby="request-view-title"><div className="leave-modal-heading"><div><p className="leave-kicker">LEAVE REQUEST #{requestView.request.id}</p><h2 id="request-view-title">{requestView.view === 'handover' ? 'Handover details' : requestView.view === 'report' ? 'Handover report' : requestView.view === 'more' ? 'Request actions' : 'Request details'}</h2></div><button className="leave-close" type="button" onClick={() => setRequestView(null)} aria-label="Close">×</button></div>{requestView.view === 'report' || requestView.view === 'handover' ? <><div className="request-summary-strip"><strong>{requestView.request.requester_name || currentUser.name}</strong><span>{leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span></div><HandoverReportForm requestId={requestView.request.id} readOnly /></> : requestView.view === 'more' ? <div className="request-action-menu"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'report')}>View Report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'delegate')}>View Delegate</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'history')}>View History</button><a className="leave-secondary-button" href={`/api/leave/requests/${requestView.request.id}/handover/pdf`} target="_blank" rel="noreferrer">View PDF</a><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button></div> : requestView.view === 'delegate' ? <div className="request-detail-grid"><strong>Delegate</strong><span>{requestView.request.handover_name || chatUsers.find((peer) => peer.id === requestView.request.handover_user_id)?.name || 'Not assigned'}</span><strong>Acceptance</strong><span>{requestView.request.handover_agreed_at ? new Date(requestView.request.handover_agreed_at).toLocaleString() : 'Pending'}</span></div> : requestView.view === 'history' ? <div className="request-detail-grid"><strong>Submitted</strong><span>{requestView.request.applied_at ? new Date(requestView.request.applied_at).toLocaleString() : '-'}</span><strong>Workflow</strong><span>{workflowLabel(requestView.request)}</span><strong>Supervisor</strong><span>{requestView.request.supervisor_name || 'Pending'}</span><strong>Decision</strong><span>{requestView.request.supervisor_decision || 'Pending'}</span><strong>HR verification</strong><span>{requestView.request.hr_verification_date ? new Date(requestView.request.hr_verification_date).toLocaleString() : 'Pending'}</span></div> : <div className="request-detail-grid"><strong>Employee</strong><span>{requestView.request.requester_name || currentUser.name}</span><strong>Leave type</strong><span>{leaveTypeName(requestView.request)}</span><strong>Dates</strong><span>{formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span><strong>Days</strong><span>{requestView.request.days_requested}</span><strong>Reason</strong><span>{requestView.request.reason || '-'}</span><strong>Status</strong><span>{workflowLabel(requestView.request)}</span><strong>Decision comment</strong><span>{requestView.request.decision_comment || 'No feedback recorded.'}</span></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close</button></div></div></div>}
+      {requestView && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide request-view-modal" role="dialog" aria-modal="true" aria-labelledby="request-view-title"><div className="leave-modal-heading"><div><p className="leave-kicker">LEAVE REQUEST #{requestView.request.id}</p><h2 id="request-view-title">{requestView.view === 'handover' ? 'Handover details' : requestView.view === 'report' ? 'Handover report' : requestView.view === 'more' ? 'Request actions' : 'Request details'}</h2></div><button className="leave-close" type="button" onClick={() => setRequestView(null)} aria-label="Close">×</button></div>{requestView.view === 'report' || requestView.view === 'handover' ? <><div className="request-summary-strip"><strong>{requestView.request.requester_name || currentUser.name}</strong><span>{requestView.request.department_name || 'Unassigned'} · {leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span></div><HandoverReportForm requestId={requestView.request.id} readOnly /></> : requestView.view === 'more' ? <div className="request-action-menu"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'report')}>View Report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'delegate')}>View Delegate</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'history')}>View History</button><a className="leave-secondary-button" href={`/api/leave/requests/${requestView.request.id}/handover/pdf`} target="_blank" rel="noreferrer">View PDF</a><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button></div> : requestView.view === 'delegate' ? <div className="request-detail-grid"><strong>Delegate</strong><span>{requestView.request.handover_name || chatUsers.find((peer) => peer.id === requestView.request.handover_user_id)?.name || 'Not assigned'}</span><strong>Acceptance</strong><span>{requestView.request.handover_agreed_at ? new Date(requestView.request.handover_agreed_at).toLocaleString() : 'Pending'}</span></div> : requestView.view === 'history' ? <div className="request-detail-grid"><strong>Submitted</strong><span>{requestView.request.applied_at ? new Date(requestView.request.applied_at).toLocaleString() : '-'}</span><strong>Workflow</strong><span>{workflowLabel(requestView.request)}</span><strong>Supervisor</strong><span>{requestView.request.supervisor_name || 'Pending'}</span><strong>Decision</strong><span>{requestView.request.supervisor_decision || 'Pending'}</span><strong>HR verification</strong><span>{requestView.request.hr_verification_date ? new Date(requestView.request.hr_verification_date).toLocaleString() : 'Pending'}</span></div> : <div className="request-detail-grid"><strong>Employee</strong><span>{requestView.request.requester_name || currentUser.name}</span><strong>Department</strong><span>{requestView.request.department_name || 'Unassigned'}</span><strong>Leave type</strong><span>{leaveTypeName(requestView.request)}</span><strong>Dates</strong><span>{formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span><strong>Days</strong><span>{requestView.request.days_requested}</span><strong>Reason</strong><span>{requestView.request.reason || '-'}</span><strong>Status</strong><span>{workflowLabel(requestView.request)}</span><strong>Decision comment</strong><span>{requestView.request.decision_comment || 'No feedback recorded.'}</span></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close</button></div></div></div>}
 
       {showRequestForm && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} colleagues={chatUsers} onClose={() => setShowRequestForm(false)} onSubmitted={async () => { setShowRequestForm(false); setMessage({ type: 'success', text: 'Leave request submitted.' }); await loadData(); }} />}
 
       {showLegacyRequestForm && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide" role="dialog" aria-modal="true" aria-labelledby="request-leave-title"><div className="leave-modal-heading"><div><p className="leave-kicker">NEW REQUEST</p><h2 id="request-leave-title">Request leave</h2></div><button className="leave-close" onClick={() => setShowLegacyRequestForm(false)} aria-label="Close">×</button></div><form onSubmit={submitRequest}><label>Leave type<select name="leave_type_id" value={form.leave_type_id} onChange={updateForm} required><option value="">Select leave type</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><div className="leave-form-row"><label>First day<input type="date" name="start_date" value={form.start_date} onChange={updateForm} required /></label><label>Last day<input type="date" name="end_date" value={form.end_date} onChange={updateForm} required /></label><div className="days-preview"><span>Working days</span><strong>{workingDays()}</strong></div></div><label>Reason<textarea name="reason" value={form.reason} onChange={updateForm} rows="3" placeholder="Add a short reason for your request" required /></label><fieldset className="leave-fieldset"><legend>How we can reach you while away</legend><div className="leave-form-row"><label>Contact phone<input name="contact_phone" value={form.contact_phone} onChange={updateForm} required /></label><label>Contact email<input type="email" name="contact_email" value={form.contact_email} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Address<input name="address_line1" value={form.address_line1} onChange={updateForm} required /></label><label>City<input name="city" value={form.city} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Country<input name="country" value={form.country} onChange={updateForm} required /></label><label>Postal code<input name="postal_code" value={form.postal_code} onChange={updateForm} /></label></div></fieldset>{workingDays() > 2 && <fieldset className="leave-fieldset"><legend>Handover</legend><label>Colleague responsible<select name="handover_user_id" value={form.handover_user_id} onChange={updateForm} required><option value="">Select a colleague</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{workingDays() > 3 && <label>Full handover report<textarea name="handover_report" value={form.handover_report} onChange={updateForm} rows="4" required placeholder="List work, deadlines, contacts, and risks." /></label>}<p className="leave-helper">The assigned colleague must acknowledge responsibility before the request can be fully handed over.</p></fieldset>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setShowLegacyRequestForm(false)}>Back</button><button type="submit" className="leave-primary-button" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit request'}</button></div></form></div></div>}
       {showProfile && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide" role="dialog" aria-modal="true" aria-labelledby="profile-title"><div className="leave-modal-heading"><div><p className="leave-kicker">YOUR DETAILS</p><h2 id="profile-title">Edit profile</h2></div><button className="leave-close" onClick={() => setShowProfile(false)} aria-label="Close">×</button></div><form onSubmit={saveProfile}><label>Profile photo<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={changeProfilePhoto} /><span className="leave-helper">JPG, PNG, GIF, or WEBP up to 5 MB.</span></label>{profilePhoto && <button type="button" className="leave-text-button" onClick={removeProfilePhoto}>Remove photo</button>}<div className="leave-form-row">{[['employee_name','Employee name'],['job_position_title','Job position title']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><div className="leave-form-row">{[['employer','Employer'],['department','Department']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><fieldset className="leave-fieldset"><legend>Contact and address</legend><div className="leave-form-row">{[['contact_phone','Phone'],['contact_email','Email']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div><div className="leave-form-row">{[['address_line1','Address'],['address_line2','Address line 2'],['city','City'],['country','Country'],['postal_code','Postal code']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div></fieldset><div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setShowProfile(false)}>Back</button><button type="submit" className="leave-primary-button">Save profile</button></div></form></div></div>}
-      {showChat && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title"><div className="leave-modal-heading"><div><p className="leave-kicker">TEAM CHAT</p><h2 id="chat-title">Messages</h2></div><button className="leave-close" type="button" onClick={() => setShowChat(false)} aria-label="Close">×</button></div><label>Chat with<select value={chatPeer} onChange={(event) => setChatPeer(event.target.value)}><option value="">Select a colleague</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{chatError && <div className="leave-alert error chat-error" role="alert">{chatError}<button type="button" className="leave-text-button" onClick={loadChat}>Try again</button></div>}<div className="chat-messages" aria-live="polite">{chatLoading ? <p className="leave-empty">Loading messages...</p> : chatMessages.length === 0 ? <p className="leave-empty">No messages yet. Start the conversation below.</p> : chatMessages.map((item) => <div className={`chat-message ${item.sender_id === currentUser.id ? 'mine' : ''}`} key={item.id}><span>{item.sender_name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>{item.body}</p></div>)}</div><form className="chat-compose" onSubmit={submitChat}><input value={chatBody} onChange={(event) => setChatBody(event.target.value)} placeholder="Write a message" maxLength="2000" disabled={!chatPeer || chatLoading} /><button className="leave-primary-button" type="submit" disabled={!chatPeer || !chatBody.trim() || chatLoading}>Send</button></form></div></div>}
-      {decisionDialog?.request && <div className="leave-modal-backdrop decision-backdrop" role="presentation"><div className={`leave-modal decision-modal decision-${decisionDialog.decision}`} role="dialog" aria-modal="true" aria-labelledby="decision-title"><div className="decision-modal-icon" aria-hidden="true">{decisionDialog.decision === 'approve' ? '✓' : decisionDialog.decision === 'reject' ? '!' : '…'}</div><div className="leave-modal-heading"><div><p className="leave-kicker">WORKFLOW DECISION</p><h2 id="decision-title">{decisionDialog.decision === 'approve' ? 'Approve leave request?' : decisionDialog.decision === 'reject' ? 'Reject leave request?' : 'Defer leave request?'}</h2></div><button className="leave-close" type="button" onClick={() => setDecisionDialog(null)} aria-label="Close decision dialog">×</button></div><div className="decision-request-summary"><strong>{decisionDialog.request.requester_name || 'Employee'}</strong><span>{leaveTypeName(decisionDialog.request)} · {formatDate(decisionDialog.request.start_date)} - {formatDate(decisionDialog.request.end_date)} · {decisionDialog.request.days_requested} days</span></div><p className="decision-message">{decisionDialog.decision === 'approve' ? 'This request has completed its handover checks and will move to the next workflow stage.' : decisionDialog.decision === 'reject' ? 'The employee will be notified that this leave request was not approved.' : 'The request will remain pending and can be reviewed again later.'}</p><label className="decision-comment-label">{decisionDialog.decision === 'approve' ? 'Comment (optional)' : 'Reason (minimum 10 characters)'}<textarea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} placeholder={decisionDialog.decision === 'approve' ? 'Add a note for the employee' : 'Explain the decision clearly'} rows="4" autoFocus /></label><div className="decision-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setDecisionDialog(null)}>Cancel</button><button type="button" className={decisionDialog.decision === 'reject' ? 'leave-danger-button' : decisionDialog.decision === 'defer' ? 'leave-secondary-button' : 'leave-primary-button'} onClick={submitDecision}>{decisionDialog.decision === 'approve' ? 'Approve request' : decisionDialog.decision === 'reject' ? 'Reject request' : 'Defer request'}</button></div></div></div>}
-    </AppShell>
+      {showChat && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title"><div className="leave-modal-heading"><div><p className="leave-kicker">TEAM CHAT</p><h2 id="chat-title">Messages</h2></div><button className="leave-close" type="button" onClick={() => { setShowChat(false); setChatTarget(null); }} aria-label="Close">×</button></div>{chatTarget?.role === 'manager' && <p className="leave-muted">Choose a manager for {chatTarget.department || 'your department'}.</p>}<label>{chatTarget?.role === 'manager' ? 'Manager' : 'Chat with'}<select value={chatPeer} onChange={(event) => setChatPeer(event.target.value)}><option value="">{chatTarget?.role === 'manager' ? 'Select a manager' : 'Select a colleague'}</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{chatError && <div className="leave-alert error chat-error" role="alert">{chatError}<button type="button" className="leave-text-button" onClick={loadChat}>Try again</button></div>}<div className="chat-messages" aria-live="polite">{chatLoading ? <p className="leave-empty">Loading messages...</p> : chatMessages.length === 0 ? <p className="leave-empty">No messages yet. Start the conversation below.</p> : chatMessages.map((item) => <div className={`chat-message ${item.sender_id === currentUser.id ? 'mine' : ''}`} key={item.id}><span>{item.sender_name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>{item.body}</p></div>)}</div><form className="chat-compose" onSubmit={submitChat}><input value={chatBody} onChange={(event) => setChatBody(event.target.value)} placeholder="Write a message" maxLength="2000" disabled={!chatPeer || chatLoading} /><button className="leave-primary-button" type="submit" disabled={!chatPeer || !chatBody.trim() || chatLoading}>Send</button></form></div></div>}
+      {decisionDialog?.request && (
+        <div className="leave-modal-backdrop decision-backdrop" role="presentation">
+          <div className={`leave-modal decision-modal decision-${decisionDialog.decision}`} role="dialog" aria-modal="true" aria-labelledby="decision-title">
+            <div className="decision-modal-icon" aria-hidden="true">{decisionDialog.decision === 'approve' ? '✓' : decisionDialog.decision === 'reject' ? '!' : '…'}</div>
+            <div className="leave-modal-heading">
+              <div>
+                <p className="leave-kicker">WORKFLOW DECISION</p>
+                <h2 id="decision-title">{decisionDialog.decision === 'approve' ? 'Approve leave request?' : decisionDialog.decision === 'reject' ? 'Reject leave request?' : 'Defer leave request?'}</h2>
+              </div>
+              <button className="leave-close" type="button" onClick={() => setDecisionDialog(null)} aria-label="Close decision dialog">×</button>
+            </div>
+            <div className="decision-request-summary">
+              <strong>{decisionDialog.request.requester_name || 'Employee'}</strong>
+              <span>{leaveTypeName(decisionDialog.request)} · {formatDate(decisionDialog.request.start_date)} - {formatDate(decisionDialog.request.end_date)} · {decisionDialog.request.days_requested} days</span>
+            </div>
+            <p className="decision-message">{decisionDialog.decision === 'approve' ? 'This request has completed its handover checks and will move to the next workflow stage.' : decisionDialog.decision === 'reject' ? 'The employee will be notified that this leave request was not approved.' : 'The request will remain pending and can be reviewed again later.'}</p>
+            <fieldset className="leave-fieldset">
+              <legend>Immediate Supervisor</legend>
+              <div className="leave-form-row">
+                <label>Name<input value={currentUser?.full_name || currentUser?.name || ''} readOnly /></label>
+                <label>Signature<input value={decisionSignature} onChange={(event) => setDecisionSignature(event.target.value)} required /></label>
+                <label>Date<input type="date" value={new Date().toISOString().slice(0, 10)} readOnly /></label>
+              </div>
+            </fieldset>
+            <label className="decision-comment-label">{decisionDialog.decision === 'approve' ? 'Comment (optional)' : 'Reason (minimum 10 characters)'}<textarea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} placeholder={decisionDialog.decision === 'approve' ? 'Add a note for the employee' : 'Explain the decision clearly'} rows="4" autoFocus /></label>
+            <div className="decision-modal-actions">
+              <button type="button" className="leave-secondary-button" onClick={() => setDecisionDialog(null)}>Cancel</button>
+              <button type="button" className={decisionDialog.decision === 'reject' ? 'leave-danger-button' : decisionDialog.decision === 'defer' ? 'leave-secondary-button' : 'leave-primary-button'} onClick={submitDecision}>{decisionDialog.decision === 'approve' ? 'Approve request' : decisionDialog.decision === 'reject' ? 'Reject request' : 'Defer request'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

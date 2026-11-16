@@ -1,23 +1,23 @@
 /* Okoa Float Leave design tokens. */
 :root {
-  --color-primary: #ed6a16;
-  --color-primary-dark: #cc4e10;
-  --color-primary-light: #f29a5f;
-  --color-primary-gradient: linear-gradient(135deg, #ed6a16 0%, #cc4e10 100%);
-  --color-secondary: #687181;
-  --color-secondary-dark: #4f5968;
-  --color-secondary-light: #aab1bb;
+  --color-primary: #ed7a16;
+  --color-primary-dark: #cc6810;
+  --color-primary-light: #f2a45f;
+  --color-primary-gradient: linear-gradient(135deg, #ed7a16 0%, #cc6810 100%);
+  --color-secondary: #c56b19;
+  --color-secondary-dark: #8b4507;
+  --color-secondary-light: #f1b373;
   --color-white: #FFFFFF;
-  --color-light-gray: #F5F7FA;
-  --color-gray: #E2E8F0;
-  --color-medium-gray: #A0AEC0;
-  --color-dark-gray: #4A5568;
-  --color-black: #1A202C;
-  --color-success: #48BB78;
-  --color-warning: #ED8936;
-  --color-error: #FC8181;
-  --color-info: #63B3ED;
-  --color-status-online: #48BB78;
-  --color-status-offline: #A0AEC0;
-  --color-status-active: #ed6a16;
+  --color-light-gray: #faf7f5;
+  --color-gray: #f0e9e2;
+  --color-medium-gray: #c0afa0;
+  --color-dark-gray: #6f3815;
+  --color-ink: #713600;
+  --color-success: #ed6a16;
+  --color-warning: #ed8b36;
+  --color-error: #cc4e10;
+  --color-info: #ed6a16;
+  --color-status-online: #ed6a16;
+  --color-status-offline: #c0afa0;
+  --color-status-active: #ed7a16;
 }

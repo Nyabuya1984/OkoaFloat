@@ -95,7 +95,7 @@ export default function HandoverAttachment({ requestId, attachments = [], readOn
               onChange={upload}
             />
             <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
-              {busy ? 'Working…' : 'Upload PDF/DOCX'}
+              {busy ? 'Working…' : 'Attach documents'}
             </button>
           </>
         )}

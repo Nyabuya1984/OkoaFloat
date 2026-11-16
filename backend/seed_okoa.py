@@ -17,10 +17,10 @@ HR_ADMIN = {
     "employee_id": "HR-0001",
     "full_name": "System Administrator",
     "email": "admin@okoa.local",
-    "phone_number": "+254700000001",
+    "phone_number": "+254721143189",
     "password": "Admin@2026!",
-    "role": "hr_admin",
-    "department": "HR",
+    "role": "super_admin",
+    "department": "All",
     "employee_name": "System Administrator",
     "job_position_title": "HR Administrator",
     "employer": "Okoa Float Ltd",
@@ -35,7 +35,7 @@ DEV_EMPLOYEE = {
     "phone_number": "+254721143189",
     "password": "Nyabuy@1984",
     "role": "employee",
-    "department": "Operations",
+    "department": "Customer Care",
     "job_position_title": "Employee",
     "employer": "Okoa Float Ltd",
     "hire_date": date(2020, 1, 1),
@@ -60,20 +60,19 @@ def seed():
         existing = User.query.filter_by(email=HR_ADMIN["email"]).first()
         if existing:
             existing.is_superuser = True
-            existing.role = "hr_admin"
+            existing.role = "super_admin"
             existing.is_active = True
             existing.account_status = "approved"
+            existing.approved_at = existing.approved_at or datetime.utcnow()
             existing.must_change_password = True
+            existing.phone_number = HR_ADMIN["phone_number"]
+            existing.department = HR_ADMIN["department"]
+            existing.department_id = None
             if not existing.password_hash:
                 existing.set_password(HR_ADMIN["password"])
             db.session.commit()
             print(f"[ok]   Updated HR admin to super-user: {HR_ADMIN['email']}")
         else:
-            department = Department.query.filter_by(name=HR_ADMIN["department"]).first()
-            if not department:
-                department = Department(name=HR_ADMIN["department"])
-                db.session.add(department)
-                db.session.flush()
             admin = User(
                 employee_id=HR_ADMIN["employee_id"],
                 full_name=HR_ADMIN["full_name"],
@@ -81,7 +80,7 @@ def seed():
                 phone_number=HR_ADMIN["phone_number"],
                 role=HR_ADMIN["role"],
                 department=HR_ADMIN["department"],
-                department_id=department.id,
+                department_id=None,
                 employee_name=HR_ADMIN["employee_name"],
                 job_position_title=HR_ADMIN["job_position_title"],
                 employer=HR_ADMIN["employer"],
@@ -125,6 +124,7 @@ def seed():
             )
             db.session.add(dev)
         dev.phone_number = DEV_EMPLOYEE["phone_number"]
+        dev.department = DEV_EMPLOYEE["department"]
         dev.set_password(DEV_EMPLOYEE["password"])
         dev.hire_date = DEV_EMPLOYEE["hire_date"]
         dev.is_active = True

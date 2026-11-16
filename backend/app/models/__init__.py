@@ -13,7 +13,23 @@ from app.models.leave import (
 from app.models.auth import AuthSession, OtpChallenge
 from app.models.dashboard_feature import DashboardFeatureSetting
 from app.models.chat import ChatMessage
-from app.models.sales import SalesDailyReport
+from app.models.customer_care import (
+    CallFollowUp,
+    CallLog,
+    ConcernCategory,
+    Customer,
+    Escalation,
+    LoanSnapshot,
+    ReferenceCounter,
+    ShiftDefinition,
+)
+from app.models.sales import (
+    SalesCallLog,
+    SalesDailyReport,
+    SalesFollowUp,
+    SalesLead,
+    SalesRegistration,
+)
 from app.models.debt_collection import (
     DebtCollectionAssignment,
     DebtCollectionAuditLog,
@@ -38,6 +54,18 @@ from app.models.handover import (
     HandoverRisk,
     HandoverTask,
 )
+from app.models.rbac import Permission, Role, RolePermission, UserRole
+from app.models.organization import (
+    AgentLocation,
+    AgentLocationOverride,
+    AgentLocationPolicy,
+    AgentLocationSharing,
+    Client,
+    DepartmentPageConfiguration,
+    DepartmentAssignmentHistory,
+    DepartmentHistory,
+    LeaveApprovalStep,
+)
 
 __all__ = [
     "User",
@@ -53,7 +81,19 @@ __all__ = [
     "OtpChallenge",
     "DashboardFeatureSetting",
     "ChatMessage",
+    "Customer",
+    "CallLog",
+    "CallFollowUp",
+    "ConcernCategory",
+    "Escalation",
+    "LoanSnapshot",
+    "ReferenceCounter",
+    "ShiftDefinition",
     "SalesDailyReport",
+    "SalesLead",
+    "SalesCallLog",
+    "SalesRegistration",
+    "SalesFollowUp",
     "DebtCollectionDebtor",
     "DebtCollectionDutyAssignment",
     "DebtCollectionLoan",
@@ -74,4 +114,17 @@ __all__ = [
     "HandoverRisk",
     "HandoverAttachment",
     "HandoverAcceptance",
+    "Role",
+    "Permission",
+    "RolePermission",
+    "UserRole",
+    "DepartmentAssignmentHistory",
+    "DepartmentPageConfiguration",
+    "DepartmentHistory",
+    "LeaveApprovalStep",
+    "AgentLocation",
+    "AgentLocationPolicy",
+    "AgentLocationOverride",
+    "AgentLocationSharing",
+    "Client",
 ]

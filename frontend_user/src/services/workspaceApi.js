@@ -9,9 +9,9 @@ const seed = {
     { id: 'L-1003', type: 'Annual Leave', start: '2026-07-20', end: '2026-07-22', days: 3, status: 'Cancelled', reason: 'Travel changed' },
   ],
   leaveTypes: [
-    { id: 'LT-1', name: 'Annual Leave', code: 'AL', paid: true, maxDays: 21, approval: true, color: '#6157e8' },
-    { id: 'LT-2', name: 'Sick Leave', code: 'SL', paid: true, maxDays: 14, approval: true, color: '#ef6b4a' },
-    { id: 'LT-3', name: 'Unpaid Leave', code: 'UL', paid: false, maxDays: 30, approval: true, color: '#e6a23c' },
+    { id: 'LT-1', name: 'Annual Leave', code: 'AL', paid: true, maxDays: 21, approval: true, color: '#e89b57' },
+    { id: 'LT-2', name: 'Sick Leave', code: 'SL', paid: true, maxDays: 14, approval: true, color: '#ef974a' },
+    { id: 'LT-3', name: 'Unpaid Leave', code: 'UL', paid: false, maxDays: 30, approval: true, color: '#e68b3c' },
   ],
   delegations: [{ id: 'D-1', person: 'Amina Wanjiku', scope: 'Approvals, Calendar', start: '2026-09-01', end: '2026-09-30', status: 'Active' }],
   approvals: [{ id: 'L-2001', person: 'Brian Otieno', type: 'Annual Leave', start: '2026-10-05', end: '2026-10-07', days: 3, status: 'Pending', balance: 14 }],

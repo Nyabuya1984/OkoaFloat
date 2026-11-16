@@ -1,0 +1,391 @@
+{
+  "info": {
+    "name": "OkoaFloat Backend API",
+    "description": "Import this collection, set baseUrl and credentials, then run Login followed by Verify Login OTP. Enter each OTP in the otp collection variable. Successful verification stores accessToken and refreshToken. Additional Registered API Routes includes the remaining registered backend routes; replace sample path IDs and provide endpoint-specific query/body fields before testing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:5000"},
+    {"key": "accessToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "loginPhone", "value": "+254721143189"},
+    {"key": "loginPassword", "value": "Admin@2026!"},
+    {"key": "otp", "value": ""},
+    {"key": "newPassword", "value": "Changed@2026!"},
+    {"key": "registrationPhone", "value": "+254712345678"},
+    {"key": "registrationEmail", "value": "employee@example.com"},
+    {"key": "managedUserPhone", "value": "+254712345678"},
+    {"key": "managedUserEmail", "value": "postman-user@example.com"},
+    {"key": "userId", "value": "1"},
+    {"key": "managedUserId", "value": "1"},
+    {"key": "requestId", "value": "1"},
+    {"key": "peerId", "value": "1"},
+    {"key": "departmentId", "value": "1"},
+    {"key": "leaveTypeId", "value": "1"},
+    {"key": "reportId", "value": "1"},
+    {"key": "attachmentId", "value": "1"},
+    {"key": "filename", "value": "document.pdf"},
+    {"key": "department_id", "value": "1"},
+    {"key": "user_id", "value": "1"},
+    {"key": "call_id", "value": "1"},
+    {"key": "customer_id", "value": "1"},
+    {"key": "follow_up_id", "value": "1"},
+    {"key": "log_id", "value": "1"},
+    {"key": "debtor_id", "value": "1"},
+    {"key": "loan_id", "value": "1"},
+    {"key": "escalation_id", "value": "1"},
+    {"key": "leave_type_id", "value": "1"},
+    {"key": "lead_id", "value": "1"},
+    {"key": "report_id", "value": "1"}
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {"name": "Root", "request": {"method": "GET", "url": "{{baseUrl}}/"}},
+        {"name": "Health", "request": {"method": "GET", "url": "{{baseUrl}}/health"}},
+        {"name": "Favicon", "request": {"method": "GET", "url": "{{baseUrl}}/favicon.ico"}}
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {"name": "Login", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"password\": \"{{loginPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/login"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Login requests OTP verification', () => pm.expect(body.verification_required).to.eql(true));"]}}]},
+        {"name": "Phone Login Alias", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"password\": \"{{loginPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/phone-login"}},
+        {"name": "Verify Login OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"otp\": \"{{otp}}\"\n}"}, "url": "{{baseUrl}}/api/auth/verify-otp"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('OTP verification issues an access token', () => pm.expect(body.access_token).to.be.a('string').and.not.empty);", "if (body.access_token) pm.collectionVariables.set('accessToken', body.access_token);", "if (body.refresh_token) pm.collectionVariables.set('refreshToken', body.refresh_token);", "if (body.user && body.user.id) pm.collectionVariables.set('userId', String(body.user.id));"]}}]},
+        {"name": "Register", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{registrationPhone}}\",\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"{{loginPassword}}\",\n  \"employee_name\": \"Amina Otieno\",\n  \"job_position_title\": \"Employee\",\n  \"employer\": \"Okoa Float Ltd\",\n  \"department\": \"Sales and Marketing\"\n}"}, "url": "{{baseUrl}}/api/auth/register"}, "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["const suffix = Date.now().toString().slice(-8);", "pm.collectionVariables.set('registrationPhone', `+2547${suffix}`);", "pm.collectionVariables.set('registrationEmail', `employee.${suffix}@example.com`);"]}}, {"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Registration requests OTP verification', () => pm.expect(body.verification_required).to.eql(true));"]}}]},
+        {"name": "Verify Registration OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{registrationPhone}}\",\n  \"otp\": \"{{otp}}\"\n}"}, "url": "{{baseUrl}}/api/auth/verify-registration"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Verified registration remains pending approval', () => pm.expect(body.account_status).to.eql('pending'));"]}}]},
+        {"name": "Request Password Reset OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\"\n}"}, "url": "{{baseUrl}}/api/auth/request-password-reset"}},
+        {"name": "Reset Password with OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"otp\": \"{{otp}}\",\n  \"new_password\": \"{{newPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/reset-password"}},
+        {"name": "Refresh Token", "request": {"method": "POST", "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{refreshToken}}", "type": "string"}]}, "url": "{{baseUrl}}/api/auth/refresh"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Refresh returns an access token', () => pm.expect(body.access_token).to.be.a('string').and.not.empty);", "if (body.access_token) pm.collectionVariables.set('accessToken', body.access_token);"]}}]},
+        {"name": "Logout", "request": {"method": "POST", "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{refreshToken}}", "type": "string"}]}, "url": "{{baseUrl}}/api/auth/logout"}},
+        {"name": "Get My Profile", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/me"}},
+        {"name": "Update My Profile", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"employee_name\": \"Amina Otieno\",\n  \"city\": \"Nairobi\"\n}"}, "url": "{{baseUrl}}/api/auth/me"}},
+        {"name": "Upload Profile Photo", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "photo", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/auth/me/photo"}},
+        {"name": "Get Profile Photo", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/photos/{{filename}}"}},
+        {"name": "Delete My Photo", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/me/photo"}}
+      ]
+    },
+    {
+      "name": "Leave",
+      "item": [
+        {"name": "Leave Types", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/types"}},
+        {"name": "Leave Balances", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/balances"}},
+        {"name": "List Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests"}},
+        {"name": "Leave Request History", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/history"}},
+        {"name": "Pending Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/pending"}},
+        {"name": "Team Calendar", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/team-calendar"}},
+        {"name": "Delegations", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/delegations"}},
+        {"name": "Get Leave Request", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}"}},
+        {"name": "Create Leave Request", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"leave_type_id\": {{leaveTypeId}},\n  \"start_date\": \"2026-10-12\",\n  \"end_date\": \"2026-10-13\",\n  \"reason\": \"Personal leave\",\n  \"contact_phone\": \"+254712345678\",\n  \"contact_email\": \"amina@example.com\",\n  \"address_line1\": \"12 Kenyatta Avenue\",\n  \"city\": \"Nairobi\",\n  \"country\": \"Kenya\",\n  \"postal_code\": \"00100\"\n}"}, "url": "{{baseUrl}}/api/leave/requests"}},
+        {"name": "Cancel Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/cancel"}},
+        {"name": "Approve Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/approve"}},
+        {"name": "Reject Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/reject"}},
+        {"name": "Defer Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/defer"}},
+        {"name": "Verify Leave Complete", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/verify-complete"}},
+        {"name": "Acknowledge Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover-ack"}},
+        {"name": "Get Handover", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+        {"name": "Create Handover", "request": {"method": "PUT", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"summary\": \"Handover summary\",\n  \"tasks\": []\n}"}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+        {"name": "Update Handover", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"summary\": \"Updated handover summary\"\n}"}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+        {"name": "Submit Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/submit"}},
+        {"name": "Download Handover PDF", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/pdf"}},
+        {"name": "Accept Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/accept"}},
+        {"name": "Decline Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/decline"}},
+        {"name": "Request Handover Changes", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/request-changes"}},
+        {"name": "Remind Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/remind"}},
+        {"name": "Get Handover Attachment", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}"}},
+        {"name": "Upload Handover Attachment", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment"}},
+        {"name": "Delete Handover Attachment", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}"}}
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {"name": "Chat Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/users"}},
+        {"name": "Messages With Peer", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}"}},
+        {"name": "Unread Count", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/unread-count"}},
+        {"name": "Send Message", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}"}, "url": "{{baseUrl}}/api/chat/messages"}},
+        {"name": "Mark Messages Read", "request": {"method": "POST", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}/read"}}
+      ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        {"name": "Admin Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/users?status=active&page=1&per_page=25"}},
+        {"name": "Admin User Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/users/summary"}},
+        {"name": "Managed Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/users"}},
+        {"name": "Create Managed User", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"full_name\": \"Postman Test User\",\n  \"email\": \"{{managedUserEmail}}\",\n  \"phone_number\": \"{{managedUserPhone}}\",\n  \"password\": \"{{loginPassword}}\",\n  \"role\": \"employee\",\n  \"department\": \"Sales\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users"}, "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["const suffix = Date.now().toString().slice(-8);", "pm.collectionVariables.set('managedUserPhone', `+2547${suffix}`);", "pm.collectionVariables.set('managedUserEmail', `postman.${suffix}@example.com`);"]}}, {"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "if (body.data && body.data.id) pm.collectionVariables.set('managedUserId', String(body.data.id));"]}}]},
+        {"name": "Update Managed User", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"job_position_title\": \"Postman Updated Role\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}"}},
+        {"name": "Set Managed User Status", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"status\": \"active\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}/status"}},
+        {"name": "Set Managed User Role", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}/role"}},
+        {"name": "Delete Managed User", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}"}},
+        {"name": "Departments", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/departments"}},
+        {"name": "Create Department", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Finance\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/departments"}},
+        {"name": "Update Department", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Department\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}"}},
+        {"name": "Delete Department", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}"}},
+        {"name": "Leave Types Admin", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/leave-types"}},
+        {"name": "Create Leave Type", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Test Leave\",\n  \"code\": \"POSTMAN_TEST\",\n  \"is_paid\": true,\n  \"requires_document\": false,\n  \"default_days_per_year\": 3\n}"}, "url": "{{baseUrl}}/api/auth/admin/leave-types"}},
+        {"name": "Update Leave Type", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Test Leave\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/leave-types/{{leaveTypeId}}"}},
+        {"name": "Delete Leave Type", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/leave-types/{{leaveTypeId}}"}},
+        {"name": "Workflow Settings", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/workflow-settings"}},
+        {"name": "Update Workflow Settings", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"handover_threshold_days\": 2,\n  \"handover_report_threshold_days\": 3,\n  \"approval_routing\": \"manager_then_hr\",\n  \"hr_verification_required\": true,\n  \"require_delegate_for_extended_leave\": true\n}"}, "url": "{{baseUrl}}/api/auth/admin/workflow-settings"}},
+        {"name": "Security Events", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/security-events"}},
+        {"name": "Audit Logs", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/audit"}},
+        {"name": "System Health Admin", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/system-health"}},
+        {"name": "Approve Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/approve"}},
+        {"name": "Deactivate Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/deactivate"}},
+        {"name": "Ban Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/ban"}},
+        {"name": "Admin User Details", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{userId}}"}}
+      ]
+    },
+    {
+      "name": "Sales",
+      "item": [
+        {"name": "List Sales Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports"}},
+        {"name": "Sales Report Template", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/template"}},
+        {"name": "Export Sales Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/export"}},
+        {"name": "Create Sales Report", "request": {"method": "POST", "body": {"mode": "urlencoded", "urlencoded": [{"key": "agent_name", "value": "Example Agent"}, {"key": "date_visited", "value": "2026-10-12"}, {"key": "customer_type", "value": "agent"}, {"key": "outcome", "value": "interested"}, {"key": "business_location", "value": "Nairobi"}, {"key": "notes", "value": "Follow up next week"}]}, "url": "{{baseUrl}}/api/sales/reports"}},
+        {"name": "Update Sales Report", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"notes\": \"Updated by Postman\"\n}"}, "url": "{{baseUrl}}/api/sales/reports/{{reportId}}"}},
+        {"name": "Import Sales Reports CSV", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/sales/reports/import"}},
+        {"name": "Download Sales Report Document", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/{{reportId}}/documents/{{filename}}"}},
+        {"name": "V2 Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/summary?scope=mine"}},
+        {"name": "V2 Daily Submissions", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/submissions/daily?scope=mine"}},
+        {"name": "V2 Funnel", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/funnel?scope=mine"}},
+        {"name": "V2 Referrals", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/referrals?scope=mine"}},
+        {"name": "V2 Appointments", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/appointments?scope=mine"}},
+        {"name": "V2 Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/reports?scope=mine"}},
+        {"name": "V2 Team Compliance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/team?scope=team"}},
+        {"name": "V2 Team Performance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/performance/team?scope=team"}},
+        {"name": "V2 Team Registrations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/team?scope=team"}},
+        {"name": "V2 Locations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/locations?scope=team"}},
+        {"name": "V2 Organization Compliance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/org?scope=org"}},
+        {"name": "V2 Organization Registrations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/org?scope=org"}},
+        {"name": "V2 Document Gaps", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/document-gaps?scope=org"}},
+        {"name": "V2 Regions", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/regions?scope=org"}},
+        {"name": "V2 Top Performers", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/top-performers?scope=org"}},
+        {"name": "V2 Audit", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/audit?scope=org"}},
+        {"name": "V2 Integrity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/integrity?scope=org"}},
+        {"name": "V2 Export Activity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/exports?scope=org"}},
+        {"name": "V2 Import Activity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/imports?scope=org"}},
+        {"name": "V2 CSV Export", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.csv?scope=org"}},
+        {"name": "V2 Excel Export", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.xlsx?scope=org"}},
+        {"name": "V2 Chase Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/chase"}},
+        {"name": "V2 Flag Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}},\n  \"reason\": \"Needs review\"\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/flag"}},
+        {"name": "V2 Verify Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/verify"}}
+      ]
+    },
+    {
+      "name": "Additional Registered API Routes",
+      "description": "Routes registered by the running Flask application that were not already represented in this collection.",
+      "item": [
+        {
+          "name": "Admin",
+          "item": [
+            {"name": "Get Dashboard Features (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/dashboard-features", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Dashboard Feature (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/admin/dashboard-features", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Department Pages (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/department-pages", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Department Pages (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/departments/{{department_id}}/pages", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Delete System Test Data (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/admin/system-test-data", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Load System Test Data (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/admin/system-test-data", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List User Duties (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/user-duties", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Assign Department Role (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/users/{{user_id}}/department-role", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Update User Duties (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/users/{{user_id}}/duties", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Auth",
+          "item": [
+            {"name": "Recover Phone (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/recover-phone", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Request Phone Recovery (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/request-account-recovery", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Request Phone Recovery (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/request-phone-recovery", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Collector",
+          "item": [
+            {"name": "Collector Dashboard Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/collector/analytics", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Collector My Portfolio (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/collector/my-portfolio", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Customer Care",
+          "item": [
+            {"name": "List Customers (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/customers", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Customer (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/customers/{{customer_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Follow Ups (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/follow-ups", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Complete Follow Up (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/customer-care/follow-ups/{{follow_up_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Create Call Log (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/customer-care/logs", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Call Logs (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/logs", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Call Log (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/logs/{{log_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Call Log (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/customer-care/logs/{{log_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Debt Collection",
+          "item": [
+            {"name": "Debt Collection Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/analytics", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Collector Performance (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/analytics/performance", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Assignments (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/assignments", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Bulk Assign Loans (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/assignments/bulk", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Collectors (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/collectors", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Create Debtor (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/debtors", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Debtors (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/debtors", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Delete Debtor (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Debtor (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Debtor (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Permanently Delete Debtor (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}/permanent", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Portfolio Csv (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/export.csv", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Portfolio Xlsx (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/export.xlsx", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Follow Ups (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/follow-ups", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Follow Up (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/follow-ups/{{follow_up_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Import Portfolio (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/import", "description": "Upload a CSV/XLSX portfolio in form-data using a file field named file. Do not manually set Content-Type for multipart uploads.", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}}},
+            {"name": "Create Loan (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Loans (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Delete Loan (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Loan (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Loan (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Archive Loan (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/archive", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Assign Loan (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/assignments", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Create Call Log (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/calls", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Call Logs (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/calls", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Record Payment (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/payments", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Permanently Delete Loan (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/permanent", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Approve Credit Rating (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/ratings", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Restore Loan (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/restore", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Approve Loan Write Off (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/write-off", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Bulk Archive Loans (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/archive/bulk", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Archived Loans (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/archived", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Permanently Delete Loans Bulk (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/permanent/bulk", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Bulk Restore Loans (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/restore/bulk", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Loans (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/records", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Debt Collection Summary (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/summary", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Leave",
+          "item": [
+            {"name": "Get Admin Leave Balances (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/balances", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Admin Leave Balance (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/leave/admin/balances/{{user_id}}/{{leave_type_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Admin Leave Policies (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/policies", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Admin Leave Policy (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/leave/admin/policies/{{leave_type_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Admin Leave Requests (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/requests", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Okoa Customer Care",
+          "item": [
+            {"name": "Create Okoa Call (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/calls", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Okoa Calls (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/calls", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Escalate Call (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/escalate", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Update Call Outcome (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/outcome", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Resolve Call Escalation (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/resolve-escalation", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Concern Categories (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/concerns", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Okoa Customers (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/customers", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Escalations (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Escalation (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations/{{escalation_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Resolve Escalation (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/escalations/{{escalation_id}}/resolve", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Escalation Summary (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations/summary", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Concern Volume Report (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/concerns", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Escalation Volume Report (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/escalations", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Gm Agent Shift Matrix (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/agent-shift-matrix", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Gm Attention Report (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/attention", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Gm Escalation Report (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/escalations/{{escalation_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Gm Resolution Report (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/resolution", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Gm Shift Overview (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/shift-overview", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Shifts (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Shift Coverage (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts/coverage", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Current Shift (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts/current", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Organization",
+          "item": [
+            {"name": "Set Active Field Visit (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/agent/active-visit", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Record Location Ping (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/agent/location", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Location Sharing Status (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/agent/location-sharing", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Set Location Sharing Status (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/agent/location-sharing", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Current Assignment (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/assignment/me", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Register Client (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/clients", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Register Client (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/clients/register", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Departments (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/departments", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Transfer Department (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/employees/transfer", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Location Tracking Control (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/location-tracking/control", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Set Location Tracking Control (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/location-tracking/control", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Location Tracking Schedule (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/location-tracking/schedule", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Set Location Tracking Schedule (PUT)", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/location-tracking/schedule", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Live Locations (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/locations/live", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Record Location Ping (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/locations/ping", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Stream Live Locations (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/locations/stream", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Agent Location Trail (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/manager/agents/{{user_id}}/location-trail", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Get Live Locations (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/manager/agents/live-locations", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Historical Department Reports (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/reports/history", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Transfer Candidates (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/transfer-candidates", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Transfer Department (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/users/{{user_id}}/transfer", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Organization Compat",
+          "item": [
+            {"name": "Record Location Ping (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/agent/location", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Register Client (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/clients/register", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Transfer Department (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/employees/transfer", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Live Locations (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/manager/agents/live-locations", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Organization Reports",
+          "item": [
+            {"name": "Reports For Department (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/{{department_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        },
+        {
+          "name": "Sales",
+          "item": [
+            {"name": "Employee Registration Performance (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/employee-performance", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Field Agent Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Field Agent Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/export.csv", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Field Agent Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/export.xlsx", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Field Agent Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/org", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Field Agent Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/team", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Registration Analytics Records (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/registration-records", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Registration Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/registrations", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Lookup Clients (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/clients/lookup", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Sales Leads (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads?from=2026-10-01&to=2026-10-31&status=interested", "description": "List leads visible to the authenticated user. Optional filters: from, to, status, employee_id, include_archived."}},
+            {"name": "Archive Sales Lead (DELETE)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Update Sales Lead (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Allocate Sales Lead (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/allocation", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Create Sales Call (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/calls", "description": "Record an immutable telesales attempt. Use response=appointment with a future appointment_datetime, response=not_interested with a decline reason, or response=registered with document status details.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"response\": \"interested\",\n  \"notes\": \"Interested in onboarding; follow up next week\"\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Sales Calls (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/calls", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Edit Sales Lead Details (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/details", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Escalate Sales Lead (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/escalations", "description": "Escalate a lead to group_leader, department_manager, or general_manager. The reason is required.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"level\": \"group_leader\",\n  \"reason\": \"Client requested a pricing exception\"\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Sales Lead Analytics (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/analytics?from=2026-10-01&to=2026-10-31", "description": "Period analytics. Managers may also pass employee_id; dates must use YYYY-MM-DD."}},
+            {"name": "Sales Lead Assignees (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/assignees", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Bulk Allocate Sales Leads (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/assignments/bulk", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Export Sales Lead Call History (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/call-history/export.csv?from=2026-10-01&to=2026-10-31&format=csv", "description": "Export call history. Use format=csv, xlsx, or pdf; date and employee filters are optional and permission-scoped."}},
+            {"name": "Distribute Sales Leads (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/distribute", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Export Sales Lead Sheet (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.csv", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Sales Lead Sheet Pdf (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.pdf", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Export Sales Lead Sheet Xlsx (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.xlsx", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Sales Follow Ups (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/follow-ups", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Complete Sales Follow Up (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/follow-ups/{{follow_up_id}}", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"is_completed\": true\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Import Sales Leads (POST)", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/import", "description": "Manager-only CSV/XLSX upload. Use form-data with a file field named file; optionally set distribute_evenly to true. Do not manually set Content-Type for multipart uploads.", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}, {"key": "distribute_evenly", "value": "false", "type": "text"}]}}},
+            {"name": "Update Report Recovery Follow Up (PATCH)", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/reports/{{report_id}}/recovery-follow-up", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Export Reports Xlsx (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/export.xlsx", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "List Report Recovery Follow Ups (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/recovery-follow-ups", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}},
+            {"name": "Report Template Xlsx (GET)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/template.xlsx", "description": "Added from the registered Flask route map. Set required query parameters and request fields according to the endpoint before sending."}}
+          ]
+        }
+      ]
+    }
+  ]
+}

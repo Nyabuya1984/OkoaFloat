@@ -1,0 +1,39 @@
+{
+  "customer_care": {
+    "allow": [
+      "customer_care.*",
+      "leave.apply"
+    ],
+    "deny": [
+      "sales_reports.view",
+      "sales_reports.write",
+      "debt_collection.*",
+      "debt_collection.related.*"
+    ]
+  },
+  "debt_collection": {
+    "allow": [
+      "debt_collection.*",
+      "debt_collection.related.*",
+      "leave.apply"
+    ],
+    "deny": [
+      "customer_care.*",
+      "sales.*",
+      "sales_reports.*"
+    ]
+  },
+  "sales": {
+    "allow": [
+      "sales.*",
+      "sales_reports.view",
+      "sales_reports.write",
+      "leave.apply"
+    ],
+    "deny": [
+      "customer_care.*",
+      "debt_collection.*",
+      "debt_collection.related.*"
+    ]
+  }
+}

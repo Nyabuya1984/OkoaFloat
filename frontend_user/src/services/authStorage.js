@@ -2,11 +2,16 @@ const storage = () => window.sessionStorage;
 
 export const getAuthToken = () => storage().getItem('okoa_access_token') || '';
 export const getRefreshToken = () => storage().getItem('okoa_refresh_token') || '';
+export const saveDashboardRole = (role) => {
+  if (role) storage().setItem('okoa_dashboard_role', String(role).trim().toLowerCase());
+  else storage().removeItem('okoa_dashboard_role');
+};
 
 export const saveAuthSession = (data) => {
   storage().setItem('okoa_access_token', data.access_token);
   if (data.refresh_token) storage().setItem('okoa_refresh_token', data.refresh_token);
   if (data.session_id) storage().setItem('okoa_session_id', data.session_id);
+  saveDashboardRole(data.user?.role);
 };
 
 export const clearAuthSession = () => {
@@ -14,6 +19,9 @@ export const clearAuthSession = () => {
   storage().removeItem('okoa_refresh_token');
   storage().removeItem('okoa_session_id');
   storage().removeItem('okoa_dashboard_role');
+  storage().removeItem('okoa_location_tracking');
+  storage().removeItem('okoa_location_last_ping');
+  window.dispatchEvent(new CustomEvent('okoa-location-tracking', { detail: { enabled: false } }));
 };
 
 export const refreshAuthToken = async () => {

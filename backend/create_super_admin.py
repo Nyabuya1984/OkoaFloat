@@ -7,7 +7,7 @@ from app.models import User
 
 DEFAULT_EMAIL = "admin@okoa.local"
 DEFAULT_PASSWORD = "Admin@2026!"
-DEFAULT_PHONE = "+254700000001"
+DEFAULT_PHONE = "+254721143189"
 
 
 def ensure_super_admin(email=DEFAULT_EMAIL, password=DEFAULT_PASSWORD, phone_number=DEFAULT_PHONE):
@@ -25,7 +25,7 @@ def ensure_super_admin(email=DEFAULT_EMAIL, password=DEFAULT_PASSWORD, phone_num
                     email=email,
                     phone_number=phone_number,
                     department="HR",
-                    role="hr_admin",
+                    role="SUPER_ADMIN",
                     hire_date=date.today(),
                     is_active=True,
                     is_superuser=True,
@@ -35,7 +35,7 @@ def ensure_super_admin(email=DEFAULT_EMAIL, password=DEFAULT_PASSWORD, phone_num
                 db.session.add(user)
             user.email = email
             user.phone_number = phone_number
-            user.role = "hr_admin"
+            user.role = "SUPER_ADMIN"
             user.department = "HR"
             user.is_active = True
             user.is_superuser = True

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock3, PhoneCall, Wallet } from 'lucide-react';
 import apiClient from '../services/debtCollectionApi';
 import CompactKpiCard from './CompactKpiCard';
@@ -21,7 +21,7 @@ const money = (value) => new Intl.NumberFormat('en-KE', {
   maximumFractionDigits: 0,
 }).format(Number(value) || 0);
 
-export default function CollectorDashboard({ compact = false }) {
+export default function CollectorDashboard({ compact = false, teamMode = false }) {
   const [records, setRecords] = useState([]);
   const [analytics, setAnalytics] = useState(emptyAnalytics);
   const [followUps, setFollowUps] = useState([]);
@@ -30,12 +30,16 @@ export default function CollectorDashboard({ compact = false }) {
   const [now, setNow] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const dashboardRequestInProgress = useRef(false);
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const loadDashboard = useCallback(async ({ silent = false } = {}) => {
+    if (dashboardRequestInProgress.current) return;
+    dashboardRequestInProgress.current = true;
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
     try {
       const [portfolioResponse, analyticsResponse, followUpsResponse] = await Promise.all([
         apiClient.get('/api/collector/my-portfolio'),
@@ -45,14 +49,30 @@ export default function CollectorDashboard({ compact = false }) {
       setRecords(portfolioResponse.data.data || []);
       setAnalytics({ ...emptyAnalytics, ...(analyticsResponse.data.data || {}) });
       setFollowUps(followUpsResponse.data.data || []);
+      setError('');
     } catch (loadError) {
       setError(loadError.message || 'Unable to load your collector portfolio.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      else setRefreshing(false);
+      dashboardRequestInProgress.current = false;
     }
   }, []);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadDashboard({ silent: true });
+    };
+    const timer = window.setInterval(refreshWhenVisible, 30_000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadDashboard]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
@@ -139,7 +159,7 @@ export default function CollectorDashboard({ compact = false }) {
         onRefresh={loadDashboard}
         onLogCall={(loanId) => {
           const loan = records.find((record) => record.id === loanId);
-          if (loan) setSelectedLoan(loan);
+          if (loan?.is_assigned_to_me !== false) setSelectedLoan(loan);
         }}
       />
 
@@ -156,7 +176,17 @@ export default function CollectorDashboard({ compact = false }) {
         <div className="collector-loading" role="status">Loading your portfolio…</div>
       ) : (
         <div className="collector-workspace-grid collector-workspace-single">
-          <SmartDebtorTable records={orderedRecords} search={search} onSearch={setSearch} onLogCall={setSelectedLoan} />
+          <SmartDebtorTable
+            records={orderedRecords}
+            search={search}
+            onSearch={setSearch}
+            onLogCall={(record) => {
+              if (record?.is_assigned_to_me !== false) setSelectedLoan(record);
+            }}
+            onRefresh={() => loadDashboard({ silent: true })}
+            refreshing={refreshing}
+            teamMode={teamMode}
+          />
         </div>
       )}
 

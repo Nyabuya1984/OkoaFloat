@@ -119,6 +119,7 @@ class User(db.Model):
             "job_position_title": self.job_position_title,
             "employer": self.employer,
             "email": self.email,
+            "official_email": self.email,
             "personal_email": self.personal_email or self.email,
             "phone_number": self.phone_number,
             "profile_photo_url": self.profile_photo_url,
@@ -129,7 +130,7 @@ class User(db.Model):
             ),
             "contact": {
                 "phone": self.contact_phone or self.phone_number,
-                "email": self.personal_email or self.contact_email or self.email,
+                "email": self.contact_email or self.personal_email or self.email,
                 "address_line1": self.address_line1,
                 "address_line2": self.address_line2,
                 "city": self.city,
@@ -167,6 +168,7 @@ class LeavePolicy(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     leave_type_id = db.Column(db.Integer, db.ForeignKey("leave_types.id"), nullable=False)
     accrual_rate = db.Column(db.Numeric(6, 2), nullable=False, default=0)
+    annual_entitlement_days = db.Column(db.Numeric(6, 2), nullable=False, default=0)
     max_carryover = db.Column(db.Numeric(6, 2), nullable=False, default=0)
     notice_days_required = db.Column(db.Integer, nullable=False, default=0)
     gender_restriction = db.Column(db.String(20), nullable=True)
@@ -187,6 +189,7 @@ class LeaveBalance(db.Model):
     used_days = db.Column(db.Numeric(6, 2), nullable=False, default=0)
     pending_days = db.Column(db.Numeric(6, 2), nullable=False, default=0)
     carried_over = db.Column(db.Numeric(6, 2), nullable=False, default=0)
+    is_manual_override = db.Column(db.Boolean, nullable=False, default=False)
 
     user = db.relationship("User", backref=db.backref("leave_balances", lazy=True))
     leave_type = db.relationship("LeaveType")

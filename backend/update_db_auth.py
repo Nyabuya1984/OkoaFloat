@@ -15,12 +15,3 @@ with app.app_context():
     except Exception as e:
         db.session.rollback()
         print(f"Failed to alter users: {e}")
-        
-    # Update OTPs table
-    try:
-        db.session.execute(text("ALTER TABLE OTPs ADD COLUMN status ENUM('Active', 'Expired') DEFAULT 'Active'"))
-        db.session.commit()
-        print("Added status to OTPs table.")
-    except Exception as e:
-        db.session.rollback()
-        print(f"Failed to alter OTPs: {e}")

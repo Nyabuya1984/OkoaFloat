@@ -31,12 +31,15 @@ services:
       DB_PORT: 3306
       FLASK_APP: run.py
       FLASK_ENV: ${FLASK_ENV:-development}
+      TRUSTED_PROXY_HOPS: 1
+      ONFON_SENDER_ID: ${ONFON_SENDER_ID:-OkoaFloat}
     ports:
-      - "${BACKEND_PORT:-5000}:5000"
+      - "127.0.0.1:${BACKEND_PORT:-5000}:5000"
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
+      - ./backend/app:/app/app
       - ./backend/uploads:/app/uploads
       - ./backend/logs:/app/logs
 
@@ -45,7 +48,7 @@ services:
       context: ./frontend_user
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:80"

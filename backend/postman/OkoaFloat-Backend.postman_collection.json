@@ -1,164 +1,530 @@
 {
   "info": {
     "name": "OkoaFloat Backend API",
-    "description": "Postman collection for the OkoaFloat Flask backend.",
+    "description": "Import this collection, set baseUrl and credentials, then run Login followed by Verify Login OTP. Enter each OTP in the otp collection variable. Successful verification stores accessToken and refreshToken. Routes are grouped by domain (Authentication, Leave, Chat, Administration, Sales, Customer Care, Debt Collection, Organization, Reports, System). Deprecated compatibility routes are grouped under 'Compatibility (Deprecated)'.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:5000" },
-    { "key": "accessToken", "value": "" },
-    { "key": "userId", "value": "1" },
-    { "key": "requestId", "value": "1" },
-    { "key": "peerId", "value": "1" },
-    { "key": "departmentId", "value": "1" },
-    { "key": "leaveTypeId", "value": "1" },
-    { "key": "reportId", "value": "1" },
-    { "key": "attachmentId", "value": "1" }
+    {"key": "baseUrl", "value": "http://localhost:5000"},
+    {"key": "accessToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "loginPhone", "value": "+254721143189"},
+    {"key": "loginPassword", "value": "Admin@2026!"},
+    {"key": "otp", "value": ""},
+    {"key": "newPassword", "value": "Changed@2026!"},
+    {"key": "registrationPhone", "value": "+254712345678"},
+    {"key": "registrationEmail", "value": "employee@example.com"},
+    {"key": "managedUserPhone", "value": "+254712345678"},
+    {"key": "managedUserEmail", "value": "postman-user@example.com"},
+    {"key": "userId", "value": "1"},
+    {"key": "managedUserId", "value": "1"},
+    {"key": "requestId", "value": "1"},
+    {"key": "peerId", "value": "1"},
+    {"key": "departmentId", "value": "1"},
+    {"key": "leaveTypeId", "value": "1"},
+    {"key": "reportId", "value": "1"},
+    {"key": "attachmentId", "value": "1"},
+    {"key": "filename", "value": "document.pdf"},
+    {"key": "department_id", "value": "1"},
+    {"key": "user_id", "value": "1"},
+    {"key": "call_id", "value": "1"},
+    {"key": "customer_id", "value": "1"},
+    {"key": "follow_up_id", "value": "1"},
+    {"key": "log_id", "value": "1"},
+    {"key": "debtor_id", "value": "1"},
+    {"key": "loan_id", "value": "1"},
+    {"key": "escalation_id", "value": "1"},
+    {"key": "leave_type_id", "value": "1"},
+    {"key": "lead_id", "value": "1"},
+    {"key": "report_id", "value": "1"}
   ],
   "auth": {
     "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
   },
   "item": [
     {
       "name": "System",
       "item": [
-        { "name": "Root", "request": { "method": "GET", "url": "{{baseUrl}}/" } },
-        { "name": "Health", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+        {"name": "Root", "request": {"method": "GET", "url": "{{baseUrl}}/"}},
+        {"name": "Health", "request": {"method": "GET", "url": "{{baseUrl}}/health"}},
+        {"name": "Favicon", "request": {"method": "GET", "url": "{{baseUrl}}/favicon.ico"}}
       ]
     },
     {
       "name": "Authentication",
       "item": [
-        {
-          "name": "Login",
-          "request": {
-            "method": "POST",
-            "auth": { "type": "noauth" },
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"password\": \"Admin@2026!\"\n}" },
-            "url": "{{baseUrl}}/api/auth/login"
-          }
-        },
-        {
-          "name": "Phone Login",
-          "request": {
-            "method": "POST",
-            "auth": { "type": "noauth" },
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"password\": \"Admin@2026!\"\n}" },
-            "url": "{{baseUrl}}/api/auth/phone-login"
-          }
-        },
-        {
-          "name": "Register",
-          "request": {
-            "method": "POST",
-            "auth": { "type": "noauth" },
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254712345678\",\n  \"email\": \"employee@example.com\",\n  \"password\": \"Password123!\",\n  \"employee_name\": \"Amina Otieno\",\n  \"job_position_title\": \"Employee\",\n  \"employer\": \"Okoa Float Ltd\",\n  \"department\": \"Sales and Marketing\"\n}" },
-            "url": "{{baseUrl}}/api/auth/register"
-          }
-        },
-        { "name": "Verify Registration", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254712345678\",\n  \"code\": \"000000\"\n}" }, "url": "{{baseUrl}}/api/auth/verify-registration" } },
-        { "name": "Verify OTP", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254700000001\",\n  \"code\": \"000000\"\n}" }, "url": "{{baseUrl}}/api/auth/verify-otp" } },
-        { "name": "Refresh Token", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"refresh-token\"\n}" }, "url": "{{baseUrl}}/api/auth/refresh" } },
-        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/logout" } },
-        { "name": "Request Password Reset", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"phone_number\": \"+254700000001\"\n}" }, "url": "{{baseUrl}}/api/auth/request-password-reset" } },
-        { "name": "Reset Password", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"challenge_id\": \"challenge-id\",\n  \"phone_number\": \"+254700000001\",\n  \"code\": \"000000\",\n  \"password\": \"NewPassword123!\"\n}" }, "url": "{{baseUrl}}/api/auth/reset-password" } },
-        { "name": "Get My Profile", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" } },
-        { "name": "Update My Profile", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"employee_name\": \"Amina Otieno\",\n  \"city\": \"Nairobi\"\n}" }, "url": "{{baseUrl}}/api/auth/me" } },
-        { "name": "Delete My Photo", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/auth/me/photo" } }
+        {"name": "Login", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"password\": \"{{loginPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/login"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Login requests OTP verification', () => pm.expect(body.verification_required).to.eql(true));"]}}]},
+        {"name": "Phone Login Alias", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"password\": \"{{loginPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/phone-login"}},
+        {"name": "Verify Login OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"otp\": \"{{otp}}\"\n}"}, "url": "{{baseUrl}}/api/auth/verify-otp"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('OTP verification issues an access token', () => pm.expect(body.access_token).to.be.a('string').and.not.empty);", "if (body.access_token) pm.collectionVariables.set('accessToken', body.access_token);", "if (body.refresh_token) pm.collectionVariables.set('refreshToken', body.refresh_token);", "if (body.user && body.user.id) pm.collectionVariables.set('userId', String(body.user.id));"]}}]},
+        {"name": "Register", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{registrationPhone}}\",\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"{{loginPassword}}\",\n  \"employee_name\": \"Amina Otieno\",\n  \"job_position_title\": \"Employee\",\n  \"employer\": \"Okoa Float Ltd\",\n  \"department\": \"Sales and Marketing\"\n}"}, "url": "{{baseUrl}}/api/auth/register"}, "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["const suffix = Date.now().toString().slice(-8);", "pm.collectionVariables.set('registrationPhone', `+2547${suffix}`);", "pm.collectionVariables.set('registrationEmail', `employee.${suffix}@example.com`);"]}}, {"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Registration requests OTP verification', () => pm.expect(body.verification_required).to.eql(true));"]}}]},
+        {"name": "Verify Registration OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{registrationPhone}}\",\n  \"otp\": \"{{otp}}\"\n}"}, "url": "{{baseUrl}}/api/auth/verify-registration"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Verified registration remains pending approval', () => pm.expect(body.account_status).to.eql('pending'));"]}}]},
+        {"name": "Request Password Reset OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\"\n}"}, "url": "{{baseUrl}}/api/auth/request-password-reset"}},
+        {"name": "Reset Password with OTP", "request": {"method": "POST", "auth": {"type": "noauth"}, "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"phone_number\": \"{{loginPhone}}\",\n  \"otp\": \"{{otp}}\",\n  \"new_password\": \"{{newPassword}}\"\n}"}, "url": "{{baseUrl}}/api/auth/reset-password"}},
+        {"name": "Refresh Token", "request": {"method": "POST", "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{refreshToken}}", "type": "string"}]}, "url": "{{baseUrl}}/api/auth/refresh"}, "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "pm.test('Refresh returns an access token', () => pm.expect(body.access_token).to.be.a('string').and.not.empty);", "if (body.access_token) pm.collectionVariables.set('accessToken', body.access_token);"]}}]},
+        {"name": "Logout", "request": {"method": "POST", "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{refreshToken}}", "type": "string"}]}, "url": "{{baseUrl}}/api/auth/logout"}},
+        {"name": "Get My Profile", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/me"}},
+        {"name": "Update My Profile", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"employee_name\": \"Amina Otieno\",\n  \"city\": \"Nairobi\"\n}"}, "url": "{{baseUrl}}/api/auth/me"}},
+        {"name": "Upload Profile Photo", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "photo", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/auth/me/photo"}},
+        {"name": "Get Profile Photo", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/photos/{{filename}}"}},
+        {"name": "Delete My Photo", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/me/photo"}},
+        {"name": "Recover Phone", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/auth/recover-phone"}},
+        {"name": "Request Account Recovery", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/auth/request-account-recovery"}},
+        {"name": "Request Phone Recovery", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/auth/request-phone-recovery"}}
       ]
     },
     {
       "name": "Leave",
       "item": [
-        { "name": "Leave Types", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/types" } },
-        { "name": "Leave Balances", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/balances" } },
-        { "name": "List Leave Requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests" } },
-        { "name": "Leave Request History", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/history" } },
-        { "name": "Pending Leave Requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/pending" } },
-        { "name": "Delegations", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/delegations" } },
-        { "name": "Get Leave Request", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}" } },
-        { "name": "Create Leave Request", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"leave_type_id\": {{leaveTypeId}},\n  \"start_date\": \"2026-10-12\",\n  \"end_date\": \"2026-10-14\",\n  \"reason\": \"Personal leave\",\n  \"contact_phone\": \"+254712345678\",\n  \"contact_email\": \"amina@example.com\",\n  \"address_line1\": \"12 Kenyatta Avenue\",\n  \"city\": \"Nairobi\",\n  \"country\": \"Kenya\",\n  \"postal_code\": \"00100\"\n}" }, "url": "{{baseUrl}}/api/leave/requests" } },
-        { "name": "Cancel Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/cancel" } },
-        { "name": "Approve Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/approve" } },
-        { "name": "Reject Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/reject" } },
-        { "name": "Defer Leave Request", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/defer" } },
-        { "name": "Verify Leave Complete", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/verify-complete" } },
-        { "name": "Acknowledge Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover-ack" } },
-        { "name": "Get Handover", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
-        { "name": "Create Handover", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"summary\": \"Handover summary\",\n  \"tasks\": []\n}" }, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
-        { "name": "Update Handover", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"summary\": \"Updated handover summary\"\n}" }, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover" } },
-        { "name": "Submit Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/submit" } },
-        { "name": "Download Handover PDF", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/pdf" } },
-        { "name": "Accept Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/accept" } },
-        { "name": "Decline Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/decline" } },
-        { "name": "Request Handover Changes", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/request-changes" } },
-        { "name": "Remind Handover", "request": { "method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/remind" } },
-        { "name": "Get Handover Attachment", "request": { "method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}" } },
-        { "name": "Delete Handover Attachment", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}" } }
+        {
+          "name": "Employee",
+          "item": [
+            {"name": "Leave Types", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/types"}},
+            {"name": "Leave Balances", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/balances"}},
+            {"name": "List Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests"}},
+            {"name": "Leave Request History", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/history"}},
+            {"name": "Pending Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/pending"}},
+            {"name": "Team Calendar", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/team-calendar"}},
+            {"name": "Delegations", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/delegations"}},
+            {"name": "Get Leave Request", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}"}},
+            {"name": "Create Leave Request", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"leave_type_id\": {{leaveTypeId}},\n  \"start_date\": \"2026-10-12\",\n  \"end_date\": \"2026-10-13\",\n  \"reason\": \"Personal leave\",\n  \"contact_phone\": \"+254712345678\",\n  \"contact_email\": \"amina@example.com\",\n  \"address_line1\": \"12 Kenyatta Avenue\",\n  \"city\": \"Nairobi\",\n  \"country\": \"Kenya\",\n  \"postal_code\": \"00100\"\n}"}, "url": "{{baseUrl}}/api/leave/requests"}},
+            {"name": "Cancel Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/cancel"}},
+            {"name": "Approve Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/approve"}},
+            {"name": "Reject Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/reject"}},
+            {"name": "Defer Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/defer"}},
+            {"name": "Verify Leave Complete", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/verify-complete"}},
+            {"name": "Acknowledge Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover-ack"}},
+            {"name": "Get Handover", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+            {"name": "Create Handover", "request": {"method": "PUT", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"summary\": \"Handover summary\",\n  \"tasks\": []\n}"}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+            {"name": "Update Handover", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"summary\": \"Updated handover summary\"\n}"}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover"}},
+            {"name": "Submit Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/submit"}},
+            {"name": "Download Handover PDF", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/pdf"}},
+            {"name": "Accept Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/accept"}},
+            {"name": "Decline Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/decline"}},
+            {"name": "Request Handover Changes", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/request-changes"}},
+            {"name": "Remind Handover", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/remind"}},
+            {"name": "Get Handover Attachment", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}"}},
+            {"name": "Upload Handover Attachment", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment"}},
+            {"name": "Delete Handover Attachment", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/handover/attachment/{{attachmentId}}"}}
+          ]
+        },
+        {
+          "name": "Admin",
+          "item": [
+            {"name": "Get Leave Balances", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/balances"}},
+            {"name": "Update Leave Balance", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/leave/admin/balances/{{user_id}}/{{leave_type_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Leave Policies", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/policies"}},
+            {"name": "Update Leave Policy", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/leave/admin/policies/{{leave_type_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/requests"}}
+          ]
+        }
       ]
     },
     {
       "name": "Chat",
       "item": [
-        { "name": "Chat Users", "request": { "method": "GET", "url": "{{baseUrl}}/users" } },
-        { "name": "Messages With Peer", "request": { "method": "GET", "url": "{{baseUrl}}/messages/{{peerId}}" } },
-        { "name": "Unread Count", "request": { "method": "GET", "url": "{{baseUrl}}/unread-count" } },
-        { "name": "Send Message", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}" }, "url": "{{baseUrl}}/messages" } },
-        { "name": "Mark Messages Read", "request": { "method": "POST", "url": "{{baseUrl}}/messages/{{peerId}}/read" } }
+        {"name": "Chat Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/users"}},
+        {"name": "Messages With Peer", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}"}},
+        {"name": "Unread Count", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/unread-count"}},
+        {"name": "Send Message", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}"}, "url": "{{baseUrl}}/api/chat/messages"}},
+        {"name": "Mark Messages Read", "request": {"method": "POST", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}/read"}}
       ]
     },
     {
       "name": "Administration",
       "item": [
-        { "name": "Admin Users", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/users?status=active&page=1&per_page=25" } },
-        { "name": "Admin User Summary", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/users/summary" } },
-        { "name": "Departments", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/departments" } },
-        { "name": "Create Department", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Finance\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/departments" } },
-        { "name": "Update Department", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Department\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}" } },
-        { "name": "Delete Department", "request": { "method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}" } },
-        { "name": "Leave Types Admin", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/leave-types" } },
-        { "name": "Workflow Settings", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/workflow-settings" } },
-        { "name": "Security Events", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/security-events" } },
-        { "name": "Audit Logs", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/audit" } },
-        { "name": "System Health Admin", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/admin/system-health" } },
-        { "name": "Approve Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/approve" } },
-        { "name": "Deactivate Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/deactivate" } },
-        { "name": "Ban Account", "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/ban" } },
-        { "name": "Admin User Details", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}" }, "url": "{{baseUrl}}/api/auth/admin/users/{{userId}}" } }
+        {
+          "name": "Users",
+          "item": [
+            {"name": "Admin Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/users?status=active&page=1&per_page=25"}},
+            {"name": "Admin User Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/users/summary"}},
+            {"name": "Managed Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/users"}},
+            {"name": "Create Managed User", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"full_name\": \"Postman Test User\",\n  \"email\": \"{{managedUserEmail}}\",\n  \"phone_number\": \"{{managedUserPhone}}\",\n  \"password\": \"{{loginPassword}}\",\n  \"role\": \"employee\",\n  \"department\": \"Sales\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users"}, "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["const suffix = Date.now().toString().slice(-8);", "pm.collectionVariables.set('managedUserPhone', `+2547${suffix}`);", "pm.collectionVariables.set('managedUserEmail', `postman.${suffix}@example.com`);"]}}, {"listen": "test", "script": {"type": "text/javascript", "exec": ["const body = pm.response.json();", "if (body.data && body.data.id) pm.collectionVariables.set('managedUserId', String(body.data.id));"]}}]},
+            {"name": "Update Managed User", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"job_position_title\": \"Postman Updated Role\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}"}},
+            {"name": "Set Managed User Status", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"status\": \"active\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}/status"}},
+            {"name": "Set Managed User Role", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}/role"}},
+            {"name": "Delete Managed User", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/users/{{managedUserId}}"}},
+            {"name": "Update User Role", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"role\": \"employee\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/users/{{userId}}"}},
+            {"name": "Approve Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/approve"}},
+            {"name": "Deactivate Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/deactivate"}},
+            {"name": "Ban Account", "request": {"method": "POST", "url": "{{baseUrl}}/api/auth/accounts/{{userId}}/ban"}},
+            {"name": "List User Duties", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/user-duties"}},
+            {"name": "Assign Department Role", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/users/{{user_id}}/department-role", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Update User Duties", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/users/{{user_id}}/duties", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Departments",
+          "item": [
+            {"name": "List Departments", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/departments"}},
+            {"name": "Create Department", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Finance\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/departments"}},
+            {"name": "Update Department", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Department\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}"}},
+            {"name": "Delete Department", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/departments/{{departmentId}}"}},
+            {"name": "Get Department Pages", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/department-pages"}},
+            {"name": "Update Department Pages", "request": {"method": "PUT", "url": "{{baseUrl}}/api/admin/departments/{{department_id}}/pages", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Leave Types",
+          "item": [
+            {"name": "List Leave Types", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/leave-types"}},
+            {"name": "Create Leave Type", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Test Leave\",\n  \"code\": \"POSTMAN_TEST\",\n  \"is_paid\": true,\n  \"requires_document\": false,\n  \"default_days_per_year\": 3\n}"}, "url": "{{baseUrl}}/api/auth/admin/leave-types"}},
+            {"name": "Update Leave Type", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Test Leave\"\n}"}, "url": "{{baseUrl}}/api/auth/admin/leave-types/{{leaveTypeId}}"}},
+            {"name": "Delete Leave Type", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/auth/admin/leave-types/{{leaveTypeId}}"}}
+          ]
+        },
+        {
+          "name": "Workflow & Settings",
+          "item": [
+            {"name": "Workflow Settings", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/workflow-settings"}},
+            {"name": "Update Workflow Settings", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"handover_threshold_days\": 2,\n  \"handover_report_threshold_days\": 3,\n  \"approval_routing\": \"manager_then_hr\",\n  \"hr_verification_required\": true,\n  \"require_delegate_for_extended_leave\": true\n}"}, "url": "{{baseUrl}}/api/auth/admin/workflow-settings"}},
+            {"name": "Get Dashboard Features", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/dashboard-features"}},
+            {"name": "Update Dashboard Feature", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/admin/dashboard-features", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Security & Audit",
+          "item": [
+            {"name": "Security Events", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/security-events"}},
+            {"name": "Audit Logs", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/audit"}},
+            {"name": "System Health Admin", "request": {"method": "GET", "url": "{{baseUrl}}/api/auth/admin/system-health"}}
+          ]
+        },
+        {
+          "name": "System Test Data",
+          "item": [
+            {"name": "Delete System Test Data", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/admin/system-test-data"}},
+            {"name": "Load System Test Data", "request": {"method": "POST", "url": "{{baseUrl}}/api/admin/system-test-data", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        }
       ]
     },
     {
       "name": "Sales",
       "item": [
-        { "name": "List Sales Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports" } },
-        { "name": "Sales Report Template", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports/template" } },
-        { "name": "Export Sales Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/reports/export" } },
-        { "name": "Create Sales Report", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"agent_name\": \"Example Agent\",\n  \"date_visited\": \"2026-09-22\",\n  \"customer_type\": \"agent\",\n  \"outcome\": \"interested\",\n  \"business_location\": \"Nairobi\",\n  \"notes\": \"Follow up next week\"\n}" }, "url": "{{baseUrl}}/api/sales/reports" } },
-        { "name": "V2 Summary", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/summary?scope=mine" } },
-        { "name": "V2 Daily Submissions", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/submissions/daily?scope=mine" } },
-        { "name": "V2 Funnel", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/funnel?scope=mine" } },
-        { "name": "V2 Referrals", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/referrals?scope=mine" } },
-        { "name": "V2 Appointments", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/appointments?scope=mine" } },
-        { "name": "V2 Reports", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/reports?scope=mine" } },
-        { "name": "V2 Team Compliance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/team?scope=team" } },
-        { "name": "V2 Team Performance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/performance/team?scope=team" } },
-        { "name": "V2 Locations", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/locations?scope=team" } },
-        { "name": "V2 Organization Compliance", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/org?scope=org" } },
-        { "name": "V2 Organization Registrations", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/org?scope=org" } },
-        { "name": "V2 Document Gaps", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/document-gaps?scope=org" } },
-        { "name": "V2 Regions", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/regions?scope=org" } },
-        { "name": "V2 Top Performers", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/top-performers?scope=org" } },
-        { "name": "V2 Audit", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/audit?scope=org" } },
-        { "name": "V2 Integrity", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/integrity?scope=org" } },
-        { "name": "V2 CSV Export", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.csv?scope=org" } },
-        { "name": "V2 Excel Export", "request": { "method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.xlsx?scope=org" } },
-        { "name": "V2 Chase Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/chase" } },
-        { "name": "V2 Flag Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}},\n  \"reason\": \"Needs review\"\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/flag" } },
-        { "name": "V2 Verify Action", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}" }, "url": "{{baseUrl}}/api/sales/v2/actions/verify" } }
+        {
+          "name": "Reports",
+          "item": [
+            {"name": "List Sales Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports"}},
+            {"name": "Sales Report Template", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/template"}},
+            {"name": "Report Template Xlsx", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/template.xlsx"}},
+            {"name": "Export Sales Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/export"}},
+            {"name": "Export Reports Xlsx", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/export.xlsx"}},
+            {"name": "Create Sales Report", "request": {"method": "POST", "body": {"mode": "urlencoded", "urlencoded": [{"key": "agent_name", "value": "Example Agent"}, {"key": "date_visited", "value": "2026-10-12"}, {"key": "customer_type", "value": "agent"}, {"key": "outcome", "value": "interested"}, {"key": "business_location", "value": "Nairobi"}, {"key": "notes", "value": "Follow up next week"}]}, "url": "{{baseUrl}}/api/sales/reports"}},
+            {"name": "Update Sales Report", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"notes\": \"Updated by Postman\"\n}"}, "url": "{{baseUrl}}/api/sales/reports/{{reportId}}"}},
+            {"name": "Import Sales Reports CSV", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/sales/reports/import"}},
+            {"name": "Download Sales Report Document", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/{{reportId}}/documents/{{filename}}"}},
+            {"name": "List Report Recovery Follow Ups", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/reports/recovery-follow-ups"}},
+            {"name": "Update Report Recovery Follow Up", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/reports/{{report_id}}/recovery-follow-up", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Leads",
+          "item": [
+            {"name": "List Sales Leads", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads?from=2026-10-01&to=2026-10-31&status=interested", "description": "List leads visible to the authenticated user. Optional filters: from, to, status, employee_id, include_archived."}},
+            {"name": "Sales Lead Assignees", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/assignees"}},
+            {"name": "Sales Lead Analytics", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/analytics?from=2026-10-01&to=2026-10-31", "description": "Period analytics. Managers may also pass employee_id; dates must use YYYY-MM-DD."}},
+            {"name": "Update Sales Lead", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Archive Sales Lead", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}"}},
+            {"name": "Allocate Sales Lead", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/allocation", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Edit Sales Lead Details", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/details", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Create Sales Call", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/calls", "description": "Record an immutable telesales attempt. Use response=appointment with a future appointment_datetime, response=not_interested with a decline reason, or response=registered with document status details.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"response\": \"interested\",\n  \"notes\": \"Interested in onboarding; follow up next week\"\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Sales Calls", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/calls"}},
+            {"name": "Escalate Sales Lead", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/{{lead_id}}/escalations", "description": "Escalate a lead to group_leader, department_manager, or general_manager. The reason is required.", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"level\": \"group_leader\",\n  \"reason\": \"Client requested a pricing exception\"\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Bulk Allocate Sales Leads", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/assignments/bulk", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Distribute Sales Leads", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/distribute", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Export Sales Lead Call History", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/call-history/export.csv?from=2026-10-01&to=2026-10-31&format=csv", "description": "Export call history. Use format=csv, xlsx, or pdf; date and employee filters are optional and permission-scoped."}},
+            {"name": "Export Sales Lead Sheet (CSV)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.csv"}},
+            {"name": "Export Sales Lead Sheet (PDF)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.pdf"}},
+            {"name": "Export Sales Lead Sheet (XLSX)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/export.xlsx"}},
+            {"name": "List Sales Follow Ups", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/leads/follow-ups"}},
+            {"name": "Complete Sales Follow Up", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/sales/leads/follow-ups/{{follow_up_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"is_completed\": true\n}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Import Sales Leads", "request": {"method": "POST", "url": "{{baseUrl}}/api/sales/leads/import", "description": "Manager-only CSV/XLSX upload. Use form-data with a file field named file; optionally set distribute_evenly to true. Do not manually set Content-Type for multipart uploads.", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}, {"key": "distribute_evenly", "value": "false", "type": "text"}]}}},
+            {"name": "Lookup Clients", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/clients/lookup"}}
+          ]
+        },
+        {
+          "name": "Analytics",
+          "item": [
+            {"name": "Employee Registration Performance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/employee-performance"}},
+            {"name": "Field Agent Analytics (Mine)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents"}},
+            {"name": "Field Agent Analytics (Org)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/org"}},
+            {"name": "Field Agent Analytics (Team)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/team"}},
+            {"name": "Export Field Agent Analytics (CSV)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/export.csv"}},
+            {"name": "Export Field Agent Analytics (XLSX)", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/field-agents/export.xlsx"}},
+            {"name": "Registration Analytics", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/registrations"}},
+            {"name": "Registration Analytics Records", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/analytics/registration-records"}}
+          ]
+        },
+        {
+          "name": "V2 Analytics",
+          "item": [
+            {"name": "V2 Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/summary?scope=mine"}},
+            {"name": "V2 Daily Submissions", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/submissions/daily?scope=mine"}},
+            {"name": "V2 Funnel", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/funnel?scope=mine"}},
+            {"name": "V2 Referrals", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/referrals?scope=mine"}},
+            {"name": "V2 Appointments", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/appointments?scope=mine"}},
+            {"name": "V2 Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/reports?scope=mine"}},
+            {"name": "V2 Team Compliance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/team?scope=team"}},
+            {"name": "V2 Team Performance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/performance/team?scope=team"}},
+            {"name": "V2 Team Registrations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/team?scope=team"}},
+            {"name": "V2 Locations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/locations?scope=team"}},
+            {"name": "V2 Organization Compliance", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/compliance/org?scope=org"}},
+            {"name": "V2 Organization Registrations", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/registrations/org?scope=org"}},
+            {"name": "V2 Document Gaps", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/document-gaps?scope=org"}},
+            {"name": "V2 Regions", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/regions?scope=org"}},
+            {"name": "V2 Top Performers", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/top-performers?scope=org"}},
+            {"name": "V2 Audit", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/audit?scope=org"}},
+            {"name": "V2 Integrity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/integrity?scope=org"}},
+            {"name": "V2 Export Activity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/exports?scope=org"}},
+            {"name": "V2 Import Activity", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/imports?scope=org"}},
+            {"name": "V2 CSV Export", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.csv?scope=org"}},
+            {"name": "V2 Excel Export", "request": {"method": "GET", "url": "{{baseUrl}}/api/sales/v2/export.xlsx?scope=org"}},
+            {"name": "V2 Chase Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/chase"}},
+            {"name": "V2 Flag Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}},\n  \"reason\": \"Needs review\"\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/flag"}},
+            {"name": "V2 Verify Action", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"report_id\": {{reportId}}\n}"}, "url": "{{baseUrl}}/api/sales/v2/actions/verify"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customer Care",
+      "item": [
+        {
+          "name": "Calls",
+          "item": [
+            {"name": "Create Okoa Call", "request": {"method": "POST", "url": "{{baseUrl}}/api/calls", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Okoa Calls", "request": {"method": "GET", "url": "{{baseUrl}}/api/calls"}},
+            {"name": "Escalate Call", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/escalate", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Update Call Outcome", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/outcome", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Resolve Call Escalation", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/calls/{{call_id}}/resolve-escalation", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Customers & Follow-ups",
+          "item": [
+            {"name": "List Okoa Customers", "request": {"method": "GET", "url": "{{baseUrl}}/api/customers"}},
+            {"name": "List Customers", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/customers"}},
+            {"name": "Get Customer", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/customers/{{customer_id}}"}},
+            {"name": "List Follow Ups", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/follow-ups"}},
+            {"name": "Complete Follow Up", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/customer-care/follow-ups/{{follow_up_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Call Logs",
+          "item": [
+            {"name": "Create Call Log", "request": {"method": "POST", "url": "{{baseUrl}}/api/customer-care/logs", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Call Logs", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/logs"}},
+            {"name": "Get Call Log", "request": {"method": "GET", "url": "{{baseUrl}}/api/customer-care/logs/{{log_id}}"}},
+            {"name": "Update Call Log", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/customer-care/logs/{{log_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Concerns",
+          "item": [
+            {"name": "Concern Categories", "request": {"method": "GET", "url": "{{baseUrl}}/api/concerns"}}
+          ]
+        },
+        {
+          "name": "Escalations",
+          "item": [
+            {"name": "List Escalations", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations"}},
+            {"name": "Escalation Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations/summary"}},
+            {"name": "Get Escalation", "request": {"method": "GET", "url": "{{baseUrl}}/api/escalations/{{escalation_id}}"}},
+            {"name": "Resolve Escalation", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/escalations/{{escalation_id}}/resolve", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Shifts",
+          "item": [
+            {"name": "List Shifts", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts"}},
+            {"name": "Shift Coverage", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts/coverage"}},
+            {"name": "Current Shift", "request": {"method": "GET", "url": "{{baseUrl}}/api/shifts/current"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Debt Collection",
+      "item": [
+        {
+          "name": "Loans",
+          "item": [
+            {"name": "Create Loan", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Loans", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans"}},
+            {"name": "List Archived Loans", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/archived"}},
+            {"name": "Get Loan", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}"}},
+            {"name": "Update Loan", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Delete Loan", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}"}},
+            {"name": "Permanently Delete Loan", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/permanent"}},
+            {"name": "Archive Loan", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/archive", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Restore Loan", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/restore", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Bulk Archive Loans", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/archive/bulk", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Bulk Restore Loans", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/restore/bulk", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Permanently Delete Loans Bulk", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/loans/permanent/bulk"}},
+            {"name": "Approve Loan Write Off", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/write-off", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Approve Credit Rating", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/ratings", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Loan Activity",
+          "item": [
+            {"name": "Assign Loan", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/assignments", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Create Loan Call Log", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/calls", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Loan Call Logs", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/calls"}},
+            {"name": "Record Payment", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/loans/{{loan_id}}/payments", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Debtors",
+          "item": [
+            {"name": "Create Debtor", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/debtors", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Debtors", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/debtors"}},
+            {"name": "Get Debtor", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}"}},
+            {"name": "Update Debtor", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Delete Debtor", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}"}},
+            {"name": "Permanently Delete Debtor", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/debt-collection/debtors/{{debtor_id}}/permanent"}}
+          ]
+        },
+        {
+          "name": "Assignments & Collectors",
+          "item": [
+            {"name": "List Assignments", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/assignments"}},
+            {"name": "Bulk Assign Loans", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/assignments/bulk", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "List Collectors", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/collectors"}}
+          ]
+        },
+        {
+          "name": "Follow Ups",
+          "item": [
+            {"name": "List Follow Ups", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/follow-ups"}},
+            {"name": "Update Follow Up", "request": {"method": "PATCH", "url": "{{baseUrl}}/api/debt-collection/follow-ups/{{follow_up_id}}", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Analytics",
+          "item": [
+            {"name": "Debt Collection Analytics", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/analytics"}},
+            {"name": "Collector Performance", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/analytics/performance"}},
+            {"name": "Debt Collection Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/summary"}}
+          ]
+        },
+        {
+          "name": "Records & Imports",
+          "item": [
+            {"name": "List Records", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/records"}},
+            {"name": "Import Portfolio", "request": {"method": "POST", "url": "{{baseUrl}}/api/debt-collection/import", "description": "Upload a CSV/XLSX portfolio in form-data using a file field named file. Do not manually set Content-Type for multipart uploads.", "body": {"mode": "formdata", "formdata": [{"key": "file", "type": "file", "src": ""}]}}}
+          ]
+        },
+        {
+          "name": "Exports",
+          "item": [
+            {"name": "Export Portfolio CSV", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/export.csv"}},
+            {"name": "Export Portfolio XLSX", "request": {"method": "GET", "url": "{{baseUrl}}/api/debt-collection/export.xlsx"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Organization",
+      "item": [
+        {
+          "name": "Agents",
+          "item": [
+            {"name": "Set Active Field Visit", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/agent/active-visit", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Record Agent Location", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/agent/location", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Location Sharing Status", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/agent/location-sharing"}},
+            {"name": "Set Location Sharing Status", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/agent/location-sharing", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Current Assignment", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/assignment/me"}},
+            {"name": "Get Agent Location Trail", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/manager/agents/{{user_id}}/location-trail"}}
+          ]
+        },
+        {
+          "name": "Clients",
+          "item": [
+            {"name": "Register Client", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/clients", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Register Client (Alt)", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/clients/register", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}}
+          ]
+        },
+        {
+          "name": "Employees & Transfers",
+          "item": [
+            {"name": "List Departments", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/departments"}},
+            {"name": "Transfer Employee", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/employees/transfer", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Transfer User", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/users/{{user_id}}/transfer", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Transfer Candidates", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/transfer-candidates"}}
+          ]
+        },
+        {
+          "name": "Location Tracking",
+          "item": [
+            {"name": "Get Location Tracking Control", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/location-tracking/control"}},
+            {"name": "Set Location Tracking Control", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/location-tracking/control", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Get Location Tracking Schedule", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/location-tracking/schedule"}},
+            {"name": "Set Location Tracking Schedule", "request": {"method": "PUT", "url": "{{baseUrl}}/api/organization/location-tracking/schedule", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}, "url_override": null}}
+          ]
+        },
+        {
+          "name": "Live Locations",
+          "item": [
+            {"name": "Get Live Locations (Org)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/locations/live"}},
+            {"name": "Get Live Locations (Manager)", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/manager/agents/live-locations"}},
+            {"name": "Record Location Ping", "request": {"method": "POST", "url": "{{baseUrl}}/api/organization/locations/ping", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+            {"name": "Stream Live Locations", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/locations/stream"}}
+          ]
+        },
+        {
+          "name": "Reports",
+          "item": [
+            {"name": "Historical Department Reports", "request": {"method": "GET", "url": "{{baseUrl}}/api/organization/reports/history"}},
+            {"name": "Reports For Department", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/{{department_id}}"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Customer Care Reports",
+          "item": [
+            {"name": "Concern Volume Report", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/concerns"}},
+            {"name": "Escalation Volume Report", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/escalations"}}
+          ]
+        },
+        {
+          "name": "GM Reports",
+          "item": [
+            {"name": "GM Agent Shift Matrix", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/agent-shift-matrix"}},
+            {"name": "GM Attention Report", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/attention"}},
+            {"name": "GM Escalation Report", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/escalations/{{escalation_id}}"}},
+            {"name": "GM Resolution Report", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/resolution"}},
+            {"name": "GM Shift Overview", "request": {"method": "GET", "url": "{{baseUrl}}/api/reports/gm/shift-overview"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Collector",
+      "item": [
+        {"name": "Collector Dashboard Analytics", "request": {"method": "GET", "url": "{{baseUrl}}/api/collector/analytics"}},
+        {"name": "Collector My Portfolio", "request": {"method": "GET", "url": "{{baseUrl}}/api/collector/my-portfolio"}}
+      ]
+    },
+    {
+      "name": "Compatibility (Deprecated)",
+      "description": "Legacy compatibility routes retained for backward compatibility. Prefer the domain-specific equivalents in the categories above.",
+      "item": [
+        {"name": "[compat] Record Agent Location", "request": {"method": "POST", "url": "{{baseUrl}}/api/agent/location", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+        {"name": "[compat] Register Client", "request": {"method": "POST", "url": "{{baseUrl}}/api/clients/register", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+        {"name": "[compat] Transfer Employee", "request": {"method": "POST", "url": "{{baseUrl}}/api/employees/transfer", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}}},
+        {"name": "[compat] Get Live Locations (Manager)", "request": {"method": "GET", "url": "{{baseUrl}}/api/manager/agents/live-locations"}}
       ]
     }
   ]

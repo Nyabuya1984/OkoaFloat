@@ -1,1 +1,198 @@
 2026-09-23 16:15:55,596 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:142]
+2026-10-07 11:50:18,968 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:183]
+2026-10-07 11:50:19,724 WARNING: Could not reconcile schema defaults: (pymysql.err.OperationalError) (1044, "Access denied for user 'okoa_user'@'%' to database 'Okoa_Float_DB_ManagerFeature_Isolated_20261007'")
+(Background on this error at: https://sqlalche.me/e/20/e3q8) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:101]
+2026-10-07 11:50:19,876 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:154]
+2026-10-14 23:29:47,268 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-14 23:29:48,002 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:199]
+2026-10-14 23:41:03,497 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-14 23:41:04,185 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-14 23:41:04,221 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-14 23:41:04,319 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-14 23:41:04,439 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-14 23:41:04,579 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-15 00:34:32,431 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-15 00:34:32,698 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-15 00:34:33,114 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-15 00:34:33,326 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-15 00:34:33,450 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-15 00:34:33,524 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-15 00:35:38,560 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-15 00:35:39,004 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-15 00:35:39,211 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-15 00:48:37,498 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-15 00:48:37,902 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:199]
+2026-10-15 01:30:59,696 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-15 01:31:01,494 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:199]
+2026-10-15 01:31:06,430 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000098
+Code:    039020
+Expires: 2026-10-14 22:41:06 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-15 01:31:10,215 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    616099
+Expires: 2026-10-14 22:41:10 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 10:28:12,325 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-21 10:28:13,215 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-21 10:28:13,558 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-21 10:28:17,022 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    618677
+Expires: 2026-10-21 07:38:17 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 10:28:20,990 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    337087
+Expires: 2026-10-21 07:38:20 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 10:29:38,247 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-21 10:29:38,861 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:145]
+2026-10-21 10:29:39,029 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:210]
+2026-10-21 10:29:42,418 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    454028
+Expires: 2026-10-21 07:39:42 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 10:29:46,644 WARNING: Phone login rejected: normalized_phone=+254700000001 [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:291]
+2026-10-21 11:08:50,409 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:239]
+2026-10-21 11:08:51,585 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:199]
+2026-10-21 11:08:56,328 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    363093
+Expires: 2026-10-21 08:18:56 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 11:09:01,525 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    475477
+Expires: 2026-10-21 08:19:01 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:122]
+2026-10-21 14:58:28,891 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:255]
+2026-10-21 14:58:30,032 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:215]
+2026-10-21 14:58:34,728 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Registration
+Phone:   +254712300001
+Code:    114749
+Expires: 2026-10-21 12:08:34 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 14:58:39,363 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    323876
+Expires: 2026-10-21 12:08:39 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 14:58:43,803 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Reset
+Phone:   +254700000001
+Code:    595338
+Expires: 2026-10-21 12:08:43 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 14:58:44,036 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Account Recovery
+Phone:   +254700000001
+Code:    615350
+Expires: 2026-10-21 12:08:44 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 14:58:47,896 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Reset
+Phone:   +254700000001
+Code:    756877
+Expires: 2026-10-21 12:08:47 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 15:40:20,290 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:255]
+2026-10-21 15:40:21,295 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:215]
+2026-10-21 15:40:39,017 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:255]
+2026-10-21 15:40:39,557 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:161]
+2026-10-21 15:40:39,738 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:226]
+2026-10-21 15:40:42,690 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    843799
+Expires: 2026-10-21 12:50:42 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 15:40:46,504 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    007260
+Expires: 2026-10-21 12:50:46 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 15:40:50,730 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    305331
+Expires: 2026-10-21 12:50:50 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:131]
+2026-10-21 15:43:06,986 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:255]
+2026-10-21 15:43:07,781 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/20/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:161]
+2026-10-21 15:43:07,915 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:226]
+2026-11-09 10:05:08,285 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:277]
+2026-11-09 10:05:08,395 WARNING: Could not reconcile schema defaults: (pymysql.err.ProgrammingError) (1146, "Table 'Okoa_Float_DB_test.users' doesn't exist")
+[SQL: SHOW COLUMNS FROM users LIKE 'role']
+(Background on this error at: https://sqlalche.me/e/21/f405) [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:181]
+2026-11-09 10:05:08,601 WARNING: Skipping default super-admin bootstrap until the database schema is migrated. [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:248]
+2026-11-09 10:05:18,840 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    645065
+Expires: 2026-11-09 07:15:18 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:169]
+2026-11-09 10:08:28,157 INFO: Okoa Float Leave Management System started [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:277]
+2026-11-09 10:08:29,343 INFO: Ensured default super-admin account is canonicalized and protected [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/__init__.py:237]
+2026-11-09 11:00:43,822 WARNING: Phone login rejected: normalized_phone=+254700000001 [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:454]
+2026-11-09 11:23:37,156 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000002
+Code:    183197
+Expires: 2026-11-09 08:33:37 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:169]
+2026-11-09 11:23:38,126 WARNING: Phone login rejected: normalized_phone=+254700000001 [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:454]
+2026-11-09 11:23:39,058 INFO: 
+========== DEVELOPMENT OTP ==========
+Purpose: Login
+Phone:   +254700000001
+Code:    506053
+Expires: 2026-11-09 08:33:39 UTC
+===================================== [in /home/wycliffe/Desktop/OkoaFloat_1.0/backend/app/api/auth.py:169]

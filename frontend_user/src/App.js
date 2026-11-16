@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, Mail } from 'react-feather';
+import { Eye, EyeOff, Key } from 'react-feather';
 import './App.css';
 import AuthenticatedRoutes from './components/AuthenticatedRoutes';
 import { BrowserRouter } from 'react-router-dom';
-import { clearAuthSession, getAuthToken, getRefreshToken, saveAuthSession } from './services/authStorage';
+import { clearAuthSession, getAuthToken, getRefreshToken, saveAuthSession, saveDashboardRole } from './services/authStorage';
 
 const API_ORIGIN = process.env.REACT_APP_API_URL || '';
 const AUTH_API_BASE = `${API_ORIGIN}/api/auth`;
@@ -14,23 +14,63 @@ const emptyRegistration = {
   employer: '',
   department: '',
   email: '',
-  personal_email: '',
   phone_number: '',
   password: '',
 };
 
 const apiError = (payload, fallback) => payload?.error?.message || payload?.error || payload?.message || fallback;
 
-const normalizeUser = (user) => ({
-  ...user,
-  role: String(user.role || 'employee').trim().replace(/-/g, '_').toLowerCase(),
-  department: user.department || user.department_details?.name || user.department_name || '',
-  name: user.full_name || user.name || 'Employee',
-  phone: user.phone_number,
-});
+const readJsonResponse = async (response, fallbackMessage = 'The server responded unexpectedly.') => {
+  const rawText = await response.text();
+  if (!rawText) return {};
+
+  try {
+    return JSON.parse(rawText);
+  } catch (error) {
+    return { message: fallbackMessage };
+  }
+};
+
+const normalizeUser = (user = {}) => {
+  const activeAssignment = user.active_assignment || user.assignment || {};
+  const organizationalRole = user.organizational_role
+    || user.organizationalRole
+    || user.organizational_role_name
+    || activeAssignment.organizational_role
+    || '';
+  const departmentRole = user.department_role
+    || user.rbac_role
+    || activeAssignment.department_role
+    || '';
+  const departmentName = user.department
+    || user.department_details?.name
+    || user.department_name
+    || activeAssignment.department
+    || activeAssignment.department_name
+    || '';
+
+  return {
+    ...user,
+    role: String(user.role || 'employee').trim().replace(/-/g, '_').toLowerCase(),
+    department: departmentName,
+    department_name: departmentName,
+    organizational_role: String(organizationalRole).trim().toLowerCase(),
+    department_role: String(departmentRole).trim().toLowerCase(),
+    active_assignment: {
+      ...activeAssignment,
+      department: departmentName,
+      department_name: departmentName,
+      organizational_role: String(organizationalRole).trim().toLowerCase(),
+      department_role: String(departmentRole).trim().toLowerCase(),
+    },
+    name: user.full_name || user.name || 'Employee',
+    phone: user.phone_number,
+  };
+};
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
+  const [authRestoring, setAuthRestoring] = useState(() => Boolean(getAuthToken()));
   const [authView, setAuthView] = useState('login');
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -49,17 +89,24 @@ function App() {
   const [recoveryOtpEmail, setRecoveryOtpEmail] = useState('');
   const [resetOtpSent, setResetOtpSent] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [resetPhone, setResetPhone] = useState('');
+  const [resetResendCountdown, setResetResendCountdown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
-    if (loginResendCountdown <= 0 && registrationResendCountdown <= 0) return undefined;
+    if (
+      loginResendCountdown <= 0
+      && registrationResendCountdown <= 0
+      && resetResendCountdown <= 0
+    ) return undefined;
     const timer = window.setInterval(() => {
       setLoginResendCountdown((value) => Math.max(0, value - 1));
       setRegistrationResendCountdown((value) => Math.max(0, value - 1));
+      setResetResendCountdown((value) => Math.max(0, value - 1));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [loginResendCountdown, registrationResendCountdown]);
+  }, [loginResendCountdown, registrationResendCountdown, resetResendCountdown]);
 
   const showMessage = (type, text) => setMessage({ type, text });
   const clearMessage = () => setMessage(null);
@@ -76,19 +123,27 @@ function App() {
 
   useEffect(() => {
     const token = getAuthToken();
-    if (!token) return;
+    if (!token) {
+      setAuthRestoring(false);
+      return;
+    }
 
     fetch(`${AUTH_API_BASE}/me`, {
       cache: 'no-store',
       headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
     })
       .then(async (response) => {
-        const data = await response.json();
+        const data = await readJsonResponse(response, 'Your session could not be restored.');
         if (!response.ok || !data.user) throw new Error('Session expired');
-        setCurrentUser(normalizeUser(data.user));
+        const user = normalizeUser(data.user);
+        saveDashboardRole(user.role);
+        setCurrentUser(user);
       })
       .catch(() => {
         clearAuthSession();
+      })
+      .finally(() => {
+        setAuthRestoring(false);
       });
   }, []);
 
@@ -110,11 +165,11 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone_number: loginPhone.trim(), password: loginPassword }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Unable to sign in. The authentication service did not return valid JSON.');
       if (!response.ok) throw new Error(apiError(data, 'Unable to sign in.'));
       setLoginOtpSent(true);
-      setLoginResendCountdown(5);
-      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A verification code was sent to your work and personal email addresses.');
+      setLoginResendCountdown(60);
+      showMessage(data.sms_sent === false ? 'error' : 'success', data.message || 'Verification code request completed.');
     } catch (error) {
       showMessage('error', error instanceof TypeError ? 'Cannot reach the leave server. Start the backend on port 5000 and try again.' : error.message);
     } finally {
@@ -135,7 +190,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone_number: loginPhone.trim(), otp: loginOtp.trim() }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Invalid verification code. The server response was not valid JSON.');
       if (!response.ok || !data.access_token) throw new Error(apiError(data, 'Invalid verification code.'));
       saveSession(data);
     } catch (error) {
@@ -147,9 +202,9 @@ function App() {
 
   const submitRegistration = async () => {
     clearMessage();
-    const required = ['employee_name', 'job_position_title', 'employer', 'department', 'email', 'personal_email', 'phone_number', 'password'];
+    const required = ['employee_name', 'job_position_title', 'employer', 'department', 'email', 'phone_number', 'password'];
     if (required.some((field) => !registration[field]?.trim())) {
-      showMessage('error', 'Complete your employee name, job title, employer, department, work email, personal email, phone number, and password.');
+      showMessage('error', 'Complete your employee name, job title, employer, department, official email, phone number, and password.');
       return;
     }
     if (!validatePhone(registration.phone_number.trim())) {
@@ -166,14 +221,18 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...registration, phone_number: registration.phone_number.trim() }),
+        body: JSON.stringify({
+          ...registration,
+          official_email: registration.email,
+          phone_number: registration.phone_number.trim(),
+        }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Registration failed. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Registration failed.'));
       setRegistrationOtpSent(true);
-      setRegistrationResendCountdown(5);
+      setRegistrationResendCountdown(60);
       setRegistrationOtpEmail('');
-      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A verification code was sent to your work and personal email addresses.');
+      showMessage(data.sms_sent === false ? 'error' : 'success', data.message || 'Verification code request completed.');
     } catch (error) {
       showMessage('error', error.message);
     } finally {
@@ -204,7 +263,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone_number: registration.phone_number.trim(), email: registrationOtpEmail.trim(), otp: registrationOtp.trim() }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Verification failed. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Verification failed.'));
       setRegistrationOtpSent(false);
       setRegistrationOtp('');
@@ -221,8 +280,8 @@ function App() {
 
   const requestPasswordReset = async () => {
     clearMessage();
-    if (!recoveryEmail.trim()) {
-      showMessage('error', 'Enter the email address registered to your account.');
+    if (!resetPhone.trim() || !validatePhone(resetPhone.trim())) {
+      showMessage('error', 'Enter a valid Kenyan phone number.');
       return;
     }
     setBusy(true);
@@ -230,18 +289,23 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/request-password-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recoveryEmail.trim() }),
+        body: JSON.stringify({ phone_number: resetPhone.trim() }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Unable to request a reset code. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Unable to request a reset code.'));
       setResetOtpSent(true);
-      setRecoveryOtpEmail('');
-      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A password reset code was sent to your registered email.');
+      setResetResendCountdown(60);
+      showMessage(data.sms_sent === false ? 'error' : 'success', data.message || 'Verification code request completed.');
     } catch (error) {
-      showMessage('error', error.message);
+      showMessage('error', error instanceof TypeError ? 'Cannot reach the authentication server.' : error.message);
     } finally {
       setBusy(false);
     }
+  };
+
+  const resendPasswordReset = async () => {
+    if (resetResendCountdown > 0 || busy) return;
+    await requestPasswordReset();
   };
 
   const requestPhoneRecovery = async () => {
@@ -257,11 +321,11 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: recoveryEmail.trim() }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Unable to request account recovery. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Unable to request account recovery.'));
       setRecoveryOtpEmail('');
       setResetOtpSent(true);
-      showMessage(data.email_sent === false ? 'error' : 'success', data.message || 'A recovery code was sent to your registered email.');
+      showMessage('success', data.message || 'A recovery code was generated for development.');
     } catch (error) {
       showMessage('error', error instanceof TypeError ? 'Cannot reach the authentication server.' : error.message);
     } finally {
@@ -282,7 +346,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: recoveryOtpEmail.trim(), otp: resetOtp.trim() }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Unable to recover the phone number. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Unable to recover the phone number.'));
       setLoginPhone(data.phone_number);
       setResetOtpSent(false);
@@ -296,8 +360,8 @@ function App() {
 
   const resetPasswordRequest = async () => {
     clearMessage();
-    if (resetOtp.trim().length !== 6 || resetPassword.length < 8 || !recoveryOtpEmail.trim()) {
-      showMessage('error', 'Confirm the registered email, enter the 6-digit code, and choose a password of at least 8 characters.');
+    if (resetOtp.trim().length !== 6 || resetPassword.length < 8 || !resetPhone.trim()) {
+      showMessage('error', 'Enter the 6-digit code and choose a password of at least 8 characters.');
       return;
     }
     setBusy(true);
@@ -305,11 +369,12 @@ function App() {
       const response = await fetch(`${AUTH_API_BASE}/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recoveryOtpEmail.trim(), otp: resetOtp.trim(), new_password: resetPassword }),
+        body: JSON.stringify({ phone_number: resetPhone.trim(), otp: resetOtp.trim(), new_password: resetPassword }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'Unable to reset password. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Unable to reset password.'));
       setResetOtpSent(false);
+      setResetResendCountdown(0);
       setAuthView('login');
       setLoginPassword('');
       showMessage('success', 'Password reset successfully. You can now sign in.');
@@ -340,27 +405,21 @@ function App() {
   };
 
   if (currentUser) {
-    const normalizedRole = String(currentUser.role || 'employee').toLowerCase();
-    const roleLabel = normalizedRole === 'super_admin' || (normalizedRole === 'hr_admin' && currentUser.is_superuser === true)
-      ? 'Super Admin Dashboard'
-      : {
-          employee: 'Employee Dashboard',
-          manager: 'Manager Dashboard',
-          hr_admin: 'Human Resources Dashboard',
-          system_admin: 'System Admin Dashboard',
-          super_admin: 'Super Admin Dashboard',
-        }[normalizedRole] || 'Dashboard';
-
     return (
       <BrowserRouter>
         <>
-        <div className="role-banner" style={{ padding: '0.75rem 1rem', background: '#edfdf8', borderBottom: '1px solid #d8f3eb', color: '#0f172a', fontWeight: 600 }}>
-          {roleLabel}
-        </div>
-        <AuthenticatedRoutes currentUser={currentUser} onUserUpdated={(user) => setCurrentUser(normalizeUser(user))} handleLogout={handleLogout} />
+        <AuthenticatedRoutes currentUser={currentUser} onUserUpdated={(user) => {
+          const normalizedUser = normalizeUser(user);
+          saveDashboardRole(normalizedUser.role);
+          setCurrentUser(normalizedUser);
+        }} handleLogout={handleLogout} />
         </>
       </BrowserRouter>
     );
+  }
+
+  if (authRestoring) {
+    return <main className="page-state" role="status">Restoring your secure session…</main>;
   }
 
   const isRegistration = authView === 'register';
@@ -383,7 +442,7 @@ function App() {
           <div className="auth-form-heading">
             <span className="auth-eyebrow">EMPLOYEE PORTAL</span>
             <h1>{isRegistration ? 'Create your account' : isReset ? 'Reset your password' : isPhoneRecovery ? 'Recover your phone number' : isOtp ? 'Verify your identity' : 'Welcome back'}</h1>
-            <p>{isRegistration ? 'Register to manage your leave.' : isReset || isPhoneRecovery ? 'A secure code will be sent to your registered email address.' : 'Sign in to manage your leave.'}</p>
+            <p>{isRegistration ? 'Register to manage your leave.' : isReset ? 'Enter your phone number to receive a reset code.' : isPhoneRecovery ? 'Enter your official email to recover your account.' : 'Sign in to manage your leave.'}</p>
           </div>
 
           {message && <div className={`login-${message.type === 'error' ? 'error' : 'success'}`} role="alert">{message.text}</div>}
@@ -391,37 +450,41 @@ function App() {
           {isRegistration ? (
             registrationOtpSent ? (
               <>
-                <EmailField value={registrationOtpEmail} onChange={setRegistrationOtpEmail} label="Confirm work or personal email" />
-                <OtpForm value={registrationOtp} onChange={setRegistrationOtp} onSubmit={verifyRegistration} onResend={resendRegistrationOtp} resendCountdown={registrationResendCountdown} busy={busy} label="Enter email verification code" />
+                <EmailField value={registrationOtpEmail} onChange={setRegistrationOtpEmail} label="Confirm official email" />
+                <OtpForm value={registrationOtp} onChange={setRegistrationOtp} onSubmit={verifyRegistration} onResend={resendRegistrationOtp} resendCountdown={registrationResendCountdown} busy={busy} label="Enter 6-digit verification code" />
               </>
             ) : <RegistrationForm values={registration} setValues={setRegistration} onSubmit={submitRegistration} busy={busy} />
           ) : isReset ? (
             resetOtpSent ? (
               <>
-                <EmailField value={recoveryOtpEmail} onChange={setRecoveryOtpEmail} label="Confirm work or personal email" />
-                <div className="activation-input-group"><label>Enter reset code</label><input type="text" inputMode="numeric" maxLength={6} value={resetOtp} onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, ''))} placeholder="_ _ _ _ _ _" className="activation-input otp-input" autoFocus /></div>
+                <div className="auth-otp-notice" role="status">
+                  <span className="auth-otp-notice-icon" aria-hidden="true"><Key size={19} /></span>
+                  <div>
+                    <p>Didn't receive the code? Check your messages or wait 60 seconds to request a new one.</p>
+                  </div>
+                </div>
+                <OtpForm value={resetOtp} onChange={setResetOtp} onResend={resendPasswordReset} resendCountdown={resetResendCountdown} busy={busy} label="Enter reset code" />
                 <PasswordField value={resetPassword} onChange={setResetPassword} visible={showResetPassword} setVisible={setShowResetPassword} label="New password" />
                 <div className="activation-actions"><button onClick={resetPasswordRequest} disabled={busy} className="btn-activate">{busy ? 'Resetting...' : 'Reset password'}</button></div>
               </>
-            ) : <EmailField value={recoveryEmail} onChange={setRecoveryEmail} label="Work or personal email" onSubmit={requestPasswordReset} busy={busy} buttonLabel="Send reset code" />
+            ) : <PhoneForm value={resetPhone} onChange={setResetPhone} label="Phone number" onSubmit={requestPasswordReset} busy={busy} buttonLabel="Send reset code" />
           ) : isPhoneRecovery ? (
             resetOtpSent ? (
               <>
-                <EmailField value={recoveryOtpEmail} onChange={setRecoveryOtpEmail} label="Confirm work or personal email" />
+                <EmailField value={recoveryOtpEmail} onChange={setRecoveryOtpEmail} label="Confirm official email" />
                 <div className="activation-input-group"><label>Enter recovery code</label><input type="text" inputMode="numeric" maxLength={6} value={resetOtp} onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, ''))} placeholder="_ _ _ _ _ _" className="activation-input otp-input" autoFocus /></div>
                 <div className="activation-actions"><button onClick={recoverPhone} disabled={busy} className="btn-activate">{busy ? 'Verifying...' : 'Recover phone number'}</button></div>
               </>
-            ) : <EmailField value={recoveryEmail} onChange={setRecoveryEmail} label="Work or personal email" onSubmit={requestPhoneRecovery} busy={busy} buttonLabel="Send recovery code" />
+            ) : <EmailField value={recoveryEmail} onChange={setRecoveryEmail} label="Official email" onSubmit={requestPhoneRecovery} busy={busy} buttonLabel="Send recovery code" />
           ) : loginOtpSent ? (
             <>
               <div className="auth-otp-notice" role="status">
-                <span className="auth-otp-notice-icon" aria-hidden="true"><Mail size={19} /></span>
+                <span className="auth-otp-notice-icon" aria-hidden="true"><Key size={19} /></span>
                 <div>
-                  <strong>Check your email</strong>
-                  <p>We sent a 6-digit sign-in code to the email address linked to <b>{loginPhone}</b>. Enter the code below to continue.</p>
+                  <p>Didn't receive the code? Check your messages or wait 60 seconds to request a new one.</p>
                 </div>
               </div>
-              <OtpForm value={loginOtp} onChange={setLoginOtp} onSubmit={verifyLogin} onResend={resendLoginOtp} resendCountdown={loginResendCountdown} busy={busy} label="Enter 6-digit email code" />
+              <OtpForm value={loginOtp} onChange={setLoginOtp} onSubmit={verifyLogin} onResend={resendLoginOtp} resendCountdown={loginResendCountdown} busy={busy} label="Enter 6-digit verification code" />
             </>
           ) : (
             <>
@@ -432,7 +495,7 @@ function App() {
             </>
           )}
 
-          {(isOtp || isRegistration || isReset || isPhoneRecovery) && <div className="auth-links"><button className="btn-resend-link" onClick={() => { clearMessage(); setAuthView('login'); setLoginOtpSent(false); setRegistrationOtpSent(false); setResetOtpSent(false); setLoginOtp(''); setResetOtp(''); }}>Back to sign in</button></div>}
+          {(isOtp || isRegistration || isReset || isPhoneRecovery) && <div className="auth-links"><button className="btn-resend-link" onClick={() => { clearMessage(); setAuthView('login'); setLoginOtpSent(false); setRegistrationOtpSent(false); setResetOtpSent(false); setLoginOtp(''); setResetOtp(''); setResetResendCountdown(0); }}>Back to sign in</button></div>}
         </section>
       </div>
     </div>
@@ -483,8 +546,7 @@ const RegistrationForm = ({ values, setValues, onSubmit, busy }) => {
       ['job_position_title', 'Job position title', 'text'],
       ['employer', 'Employer', 'text'],
       ['department', 'Department', 'text'],
-      ['email', 'Work email', 'email'],
-      ['personal_email', 'Personal email', 'email'],
+      ['email', 'Official email', 'email'],
       ['phone_number', 'Phone number', 'tel'],
       ].map(([field, label, type]) => <div className="activation-input-group" key={field}><label>{label}</label><input type={type} value={values[field]} onChange={(event) => setValues({ ...values, [field]: event.target.value })} placeholder={label} className="activation-input" /></div>)}
       <PasswordField value={values.password} onChange={(password) => setValues({ ...values, password })} visible={showPassword} setVisible={setShowPassword} label="Password" />

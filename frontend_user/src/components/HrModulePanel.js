@@ -1,6 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { getAuthToken } from '../services/authStorage';
 import { apiUrl } from '../services/apiConfig';
+import { organizationApi } from '../services/organizationApi';
+
+const organizationRoleLabels = {
+  general_manager: 'General Manager',
+  department_manager: 'Department Manager',
+  team_leader: 'Team Leader',
+  field_agent: 'Field Agent / Employee',
+};
+const managerRoleByPosition = {
+  department_manager: 'general_manager',
+  team_leader: 'department_manager',
+  field_agent: 'team_leader',
+};
+const departmentRoleFor = (department) => {
+  const normalized = String(department || '').toLowerCase();
+  if (normalized.includes('sales') || normalized.includes('marketing')) return 'sales';
+  if (normalized.includes('debt') || normalized.includes('collection')) return 'debt_collection';
+  if (normalized.includes('care')) return 'customer_care';
+  return '';
+};
 
 const hrHighlights = [
   { label: 'Active employees', value: '284', detail: 'Across all departments', tone: 'blue' },
@@ -29,7 +49,10 @@ const emptyProfileForm = {
   phone_number: '',
   department: 'General',
   role: 'employee',
-  job_position_title: '',
+  job_position_title: organizationRoleLabels.field_agent,
+  organizational_role: 'field_agent',
+  department_role: '',
+  manager_id: '',
   employer: 'Okoa Float Ltd',
   hire_date: '',
   city: '',
@@ -43,11 +66,34 @@ export default function HrModulePanel({ employees = [], departments = [], onRefr
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
+  const [organizationCandidates, setOrganizationCandidates] = useState([]);
   const [activeModule, setActiveModule] = useState(null);
   const [moduleForm, setModuleForm] = useState({});
   const [moduleRecords, setModuleRecords] = useState(() => {
     try { return JSON.parse(window.sessionStorage.getItem('okoa_hr_module_records') || '{"assets":[],"recruitment":[],"shifts":[],"performance":[]}'); } catch { return { assets: [], recruitment: [], shifts: [], performance: [] }; }
   });
+  const managerRole = managerRoleByPosition[profileForm.organizational_role];
+  const managerCandidates = organizationCandidates.filter((candidate) => (
+    candidate.organizational_role === managerRole
+    && (
+      profileForm.organizational_role === 'department_manager'
+      || candidate.department_id === departments.find(
+        (department) => department.name === profileForm.department,
+      )?.id
+    )
+  ));
+
+  useEffect(() => {
+    let active = true;
+    organizationApi.getTransferCandidates()
+      .then((candidates) => {
+        if (active) setOrganizationCandidates(candidates || []);
+      })
+      .catch((error) => {
+        if (active) setFeedback({ type: 'error', message: error.message });
+      });
+    return () => { active = false; };
+  }, []);
 
   const employeeDirectory = employees.length
     ? employees.map((employee) => ({
@@ -89,6 +135,9 @@ export default function HrModulePanel({ employees = [], departments = [], onRefr
       department: employee.department || employee.department_details?.name || 'General',
       role: employee.role || 'employee',
       job_position_title: employee.job_position_title || '',
+      organizational_role: 'field_agent',
+      department_role: '',
+      manager_id: '',
       employer: employee.employer || 'Okoa Float Ltd',
       hire_date: employee.hire_date || '',
       city: employee.city || employee.contact?.city || '',
@@ -100,8 +149,24 @@ export default function HrModulePanel({ employees = [], departments = [], onRefr
 
   const submitProfile = async (event) => {
     event.preventDefault();
-    setSubmitting(true);
     setFeedback({ type: '', message: '' });
+    if (
+      !editingId
+      && ['field_agent', 'team_leader', 'department_manager'].includes(profileForm.organizational_role)
+      && !profileForm.department_role
+    ) {
+      setFeedback({ type: 'error', message: 'Select the operational role matching the chosen department.' });
+      return;
+    }
+    if (
+      !editingId
+      && profileForm.organizational_role !== 'general_manager'
+      && !profileForm.manager_id
+    ) {
+      setFeedback({ type: 'error', message: 'Select the employee’s manager in the organizational hierarchy.' });
+      return;
+    }
+    setSubmitting(true);
 
     try {
       const token = getAuthToken();
@@ -118,7 +183,17 @@ export default function HrModulePanel({ employees = [], departments = [], onRefr
         city: profileForm.city.trim(),
         address_line1: profileForm.address_line1.trim(),
         country: profileForm.country.trim() || 'Kenya',
+        ...(!editingId ? {
+          organizational_role: profileForm.organizational_role,
+          department_role: profileForm.department_role,
+          manager_id: profileForm.manager_id,
+        } : {}),
       };
+      if (editingId) {
+        delete payload.organizational_role;
+        delete payload.department_role;
+        delete payload.manager_id;
+      }
 
       const requestOptions = {
         method: editingId ? 'PATCH' : 'POST',
@@ -154,13 +229,28 @@ export default function HrModulePanel({ employees = [], departments = [], onRefr
         {isSuperAdmin && <label>Role<select value={profileForm.role} onChange={(event) => handleFieldChange('role', event.target.value)}><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr_admin">HR Admin</option><option value="system_admin">System Admin</option></select></label>}
       </div>
       <div className="leave-form-row">
-        <label>Email<input type="email" value={profileForm.email} onChange={(event) => handleFieldChange('email', event.target.value)} required /></label>
+        <label>Official email<input type="email" autoComplete="email" value={profileForm.email} onChange={(event) => handleFieldChange('email', event.target.value)} required /></label>
         <label>Phone<input value={profileForm.phone_number} onChange={(event) => handleFieldChange('phone_number', event.target.value)} required /></label>
       </div>
       <div className="leave-form-row">
-        <label>Department<select value={profileForm.department} onChange={(event) => handleFieldChange('department', event.target.value)} required><option value="">Select department</option>{departments.map((department) => <option value={department.name} key={department.id}>{department.name}</option>)}</select></label>
-        <label>Job title<input value={profileForm.job_position_title} onChange={(event) => handleFieldChange('job_position_title', event.target.value)} /></label>
+        <label>Department<select value={profileForm.department} onChange={(event) => setProfileForm((current) => ({
+          ...current,
+          department: event.target.value,
+          department_role: departmentRoleFor(event.target.value),
+          manager_id: '',
+        }))} required><option value="">Select department</option>{departments.map((department) => <option value={department.name} key={department.id}>{department.name}</option>)}</select></label>
+        <label>Organizational role<select value={profileForm.organizational_role} onChange={(event) => setProfileForm((current) => ({
+          ...current,
+          organizational_role: event.target.value,
+          job_position_title: organizationRoleLabels[event.target.value],
+          department_role: event.target.value === 'general_manager'
+            ? ''
+            : departmentRoleFor(current.department),
+          manager_id: '',
+        }))}>{Object.entries(organizationRoleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
       </div>
+      {!editingId && profileForm.organizational_role !== 'general_manager' && <label>Reports to — {organizationRoleLabels[managerRole]}<select value={profileForm.manager_id} onChange={(event) => handleFieldChange('manager_id', event.target.value)} required><option value="">Select manager</option>{managerCandidates.map((manager) => <option value={manager.id} key={manager.id}>{manager.name} — {manager.department}</option>)}</select></label>}
+      {['field_agent', 'team_leader', 'department_manager'].includes(profileForm.organizational_role) && <label>Department role<select value={profileForm.department_role} onChange={(event) => handleFieldChange('department_role', event.target.value)} required={!editingId}><option value="">Select department access</option>{departmentRoleFor(profileForm.department) === 'sales' && <option value="sales">Sales and Marketing</option>}{departmentRoleFor(profileForm.department) === 'debt_collection' && <option value="debt_collection">Debt Collection</option>}{departmentRoleFor(profileForm.department) === 'customer_care' && <option value="customer_care">Customer Care</option>}</select></label>}
       <div className="leave-form-row">
         <label>Employer<input value={profileForm.employer} onChange={(event) => handleFieldChange('employer', event.target.value)} /></label>
         <label>Hire date<input type="date" value={profileForm.hire_date} onChange={(event) => handleFieldChange('hire_date', event.target.value)} /></label>

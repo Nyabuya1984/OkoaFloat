@@ -9,9 +9,10 @@ WORKFLOW_STATES = {
     "draft",
     "submitted",
     "handover_pending",
-    "supervisor_pending",
+    "team_leader_pending",
+    "department_manager_pending",
+    "general_manager_pending",
     "hr_verification",
-    "approved",
     "deferred",
     "rejected",
     "completed",
@@ -19,12 +20,13 @@ WORKFLOW_STATES = {
 
 TRANSITIONS = {
     "draft": {"submit": "submitted"},
-    "submitted": {"require_handover": "handover_pending", "send_to_supervisor": "supervisor_pending", "approve": "hr_verification", "defer": "deferred", "reject": "rejected"},
-    "handover_pending": {"handover_complete": "supervisor_pending", "defer": "deferred", "reject": "rejected"},
-    "supervisor_pending": {"approve": "hr_verification", "defer": "deferred", "reject": "rejected"},
+    "submitted": {"require_handover": "handover_pending", "send_to_supervisor": "team_leader_pending", "defer": "deferred", "reject": "rejected"},
+    "handover_pending": {"handover_complete": "team_leader_pending", "defer": "deferred", "reject": "rejected"},
+    "team_leader_pending": {"approve": "department_manager_pending", "defer": "deferred", "reject": "rejected"},
+    "department_manager_pending": {"approve": "general_manager_pending", "defer": "deferred", "reject": "rejected"},
+    "general_manager_pending": {"approve": "hr_verification", "defer": "deferred", "reject": "rejected"},
     "hr_verification": {"verify": "completed", "defer": "deferred", "reject": "rejected"},
-    "deferred": {"resubmit": "supervisor_pending"},
-    "approved": {"verify": "completed"},
+    "deferred": {},
     "rejected": {},
     "completed": {},
 }
@@ -33,12 +35,14 @@ TRANSITIONS = {
 def handover_gate(request):
     days = float(request.days_requested or 0)
     report = HandoverReport.query.filter_by(leave_request_id=request.id).first()
+    leave_code = (getattr(getattr(request, "leave_type", None), "code", "") or "").upper()
+    report_required = days > 3 and leave_code not in {"SICK", "UNPAID"}
     return {
         "required": days > 2,
         "assigned": bool(request.handover_user_id),
         "accepted": bool(request.handover_agreed_at and request.handover_statement and not request.handover_statement.startswith("DECLINED:")),
-        "report_submitted": bool(request.handover_report or (report and report.submitted_at)),
-        "report_required": days > 3,
+        "report_submitted": bool(report and report.submitted_at),
+        "report_required": report_required,
     }
 
 

@@ -1,19 +1,86 @@
 """Administrative user lifecycle read APIs."""
 
 from sqlalchemy import or_
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import DashboardFeatureSetting, DebtCollectionAuditLog, DebtCollectionDutyAssignment, User
-from app.utils.rbac import is_super_admin, is_system_admin, normalize_role, require_min_tier, user_tier
+from app.models import (
+    DashboardFeatureSetting,
+    Department,
+    DepartmentPageConfiguration,
+    DebtCollectionAuditLog,
+    DebtCollectionDutyAssignment,
+    Role,
+    User,
+    UserRole,
+)
+from app.utils.rbac import (
+    assign_user_role,
+    can,
+    is_super_admin,
+    is_system_admin,
+    normalize_role,
+    require_min_tier,
+    user_tier,
+)
+from app.utils.organization import get_active_assignment
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 VALID_STATUSES = {"active", "deactivated", "archived", "deleted", "all"}
 FEATURE_ROLES = {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
-FEATURE_NAMES = {"sales_reports", "debt_collection"}
+FEATURE_NAMES = {"sales_reports", "debt_collection", "customer_care"}
+DEPARTMENT_PAGE_LABELS = {
+    "sales-reports": "Sales reports",
+    "organization-live": "Live field locations",
+    "debt-collection": "Debt Collection",
+    "customer-care-logs": "Call Logs",
+    "customer-care-new": "Log Phone Call",
+    "customer-care-customers": "Customer Directory",
+    "customer-care-follow-ups": "Pending Follow-Ups",
+    "okia-overview": "Operations Overview",
+    "okia-escalations": "Escalations",
+    "okia-shifts": "Shift management",
+    "okia-shift-coverage": "Shift coverage",
+    "okia-concerns": "Customer concerns",
+    "okia-gm-resolution": "GM resolutions",
+    "okia-gm-attention": "GM attention",
+    "okia-agent-shift-matrix": "Agent shift matrix",
+    "okia-concern-report": "Concern report",
+    "okia-escalation-report": "Escalation report",
+    "hr-module": "HR module",
+    "hr-verification": "HR verification",
+}
+
+
+def _default_department_pages(name):
+    normalized = str(name or "").casefold()
+    if "sales" in normalized or "marketing" in normalized:
+        return ["sales-reports", "organization-live"]
+    if "debt" in normalized or "collection" in normalized:
+        return ["debt-collection"]
+    if "customer" in normalized or "care" in normalized:
+        return [
+            "customer-care-logs",
+            "customer-care-new",
+            "customer-care-customers",
+            "customer-care-follow-ups",
+            "okia-overview",
+            "okia-escalations",
+            "okia-shifts",
+            "okia-shift-coverage",
+            "okia-concerns",
+            "okia-gm-resolution",
+            "okia-gm-attention",
+            "okia-agent-shift-matrix",
+            "okia-concern-report",
+            "okia-escalation-report",
+        ]
+    if "human resources" in normalized or normalized == "hr" or "people" in normalized:
+        return ["hr-module", "hr-verification"]
+    return []
 
 
 def _error(message, code="BAD_REQUEST", status=400):
@@ -71,6 +138,68 @@ def _feature_enabled(role, feature):
     return setting.enabled if setting else True
 
 
+@admin_bp.post("/system-test-data")
+@jwt_required()
+def load_system_test_data():
+    actor = _actor()
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_system_admin(actor)
+    ):
+        return _error("Only an active system administrator can load system test data", "FORBIDDEN", 403)
+
+    from seed_system_test_data import seed_records
+
+    try:
+        counts = seed_records(current_app._get_current_object())
+    except RuntimeError as error:
+        return _error(str(error), "TEST_DATA_UNAVAILABLE", 409)
+    return jsonify({
+        "data": {
+            "message": "Synthetic test data is ready.",
+            "counts": counts,
+        },
+        "error": None,
+    })
+
+
+@admin_bp.delete("/system-test-data")
+@jwt_required()
+def delete_system_test_data():
+    actor = _actor()
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_system_admin(actor)
+    ):
+        return _error("Only an active system administrator can delete system test data", "FORBIDDEN", 403)
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("confirmation") != "DELETE SYSTEM TEST DATA":
+        return _error(
+            'Enter "DELETE SYSTEM TEST DATA" to confirm this action',
+            "CONFIRMATION_REQUIRED",
+            422,
+        )
+
+    from seed_system_test_data import delete_records
+
+    try:
+        counts = delete_records(current_app._get_current_object())
+    except RuntimeError as error:
+        return _error(str(error), "TEST_DATA_UNAVAILABLE", 409)
+    return jsonify({
+        "data": {
+            "message": "Marked synthetic test records were deleted.",
+            "counts": counts,
+        },
+        "error": None,
+    })
+
+
 @admin_bp.get("/dashboard-features")
 @require_min_tier(1)
 def get_dashboard_features():
@@ -79,22 +208,19 @@ def get_dashboard_features():
         return _error("Authenticated user could not be found", "FORBIDDEN", 403)
 
     role = normalize_role(actor.role)
+    assignment = get_active_assignment(actor.id)
+    is_general_manager = bool(
+        assignment and assignment.organizational_role == "general_manager"
+    )
     duties = {
         assignment.duty
         for assignment in DebtCollectionDutyAssignment.query.filter_by(user_id=actor.id).all()
     }
-    if role == "EMPLOYEE" and duties:
-        sales_enabled = "sales_marketing_executive" in duties
-        debt_enabled = bool(duties & {"departmental_manager", "debt_collector_agent"})
-    else:
-        sales_enabled = role in {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
-        debt_enabled = role in {"MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}
-    sales_enabled = sales_enabled and _feature_enabled(role, "sales_reports")
-    debt_enabled = debt_enabled and _feature_enabled(role, "debt_collection")
     data = {
         "features": {
-            "sales_reports": sales_enabled,
-            "debt_collection": debt_enabled,
+            "sales_reports": is_general_manager or can(actor, "sales_reports.view"),
+            "debt_collection": is_general_manager or can(actor, "debt_collection.*"),
+            "customer_care": is_general_manager or can(actor, "customer_care.*"),
         },
         "duties": sorted(duties),
     }
@@ -103,10 +229,80 @@ def get_dashboard_features():
             feature_role: {
                 "sales_reports": _feature_enabled(feature_role, "sales_reports"),
                 "debt_collection": _feature_enabled(feature_role, "debt_collection"),
+                "customer_care": _feature_enabled(feature_role, "customer_care"),
             }
             for feature_role in sorted(FEATURE_ROLES)
         }
     return jsonify({"data": data, "error": None})
+
+
+@admin_bp.put("/users/<int:user_id>/department-role")
+@jwt_required()
+def assign_department_role(user_id):
+    actor = _actor()
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_system_admin(actor)
+    ):
+        return _error("Only a system administrator can assign department roles", "FORBIDDEN", 403)
+
+    target = db.session.get(User, user_id)
+    if target is None or target.is_deleted:
+        return _error("Employee not found", "NOT_FOUND", 404)
+
+    payload = request.get_json(silent=True)
+    role_name = payload.get("role") if isinstance(payload, dict) else None
+    if role_name not in {"customer_care", "debt_collection", "sales"}:
+        return _error(
+            "role must be customer_care, debt_collection, or sales",
+            "VALIDATION_ERROR",
+            422,
+        )
+    department_name = (target.department_record.name if target.department_record else target.department or "").lower()
+    role_department_matches = {
+        "sales": "sales" in department_name or "marketing" in department_name,
+        "debt_collection": "debt" in department_name,
+        "customer_care": "care" in department_name,
+    }
+    if not role_department_matches[role_name]:
+        return _error(
+            "Department role must match the employee's active department",
+            "VALIDATION_ERROR",
+            422,
+        )
+    if Role.query.filter_by(name=role_name).one_or_none() is None:
+        return _error(
+            "RBAC policies are not loaded; run the RBAC seed command first",
+            "RBAC_NOT_CONFIGURED",
+            503,
+        )
+
+    previous = UserRole.query.filter_by(user_id=target.id).first()
+    previous_role = (
+        Role.query.filter_by(id=previous.role_id).with_entities(Role.name).scalar()
+        if previous else None
+    )
+    assign_user_role(target, role_name)
+    db.session.add(DebtCollectionAuditLog(
+        user_id=actor.id,
+        entity="UserDepartmentRole",
+        action="department_role_assigned",
+        before={
+            "user_id": target.id,
+            "role": previous_role,
+        },
+        after={
+            "user_id": target.id,
+            "role": role_name,
+        },
+    ))
+    db.session.commit()
+    return jsonify({
+        "data": {"user_id": target.id, "role": role_name},
+        "error": None,
+    })
 
 
 @admin_bp.get("/user-duties")
@@ -192,6 +388,98 @@ def update_dashboard_feature():
         setting.enabled = enabled
     db.session.commit()
     return jsonify({"data": {"role": role, "feature": feature, "enabled": enabled}, "error": None})
+
+
+@admin_bp.get("/department-pages")
+@jwt_required()
+def get_department_pages():
+    actor = _actor()
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_super_admin(actor)
+    ):
+        return _error("Only an active super administrator can manage department pages", "FORBIDDEN", 403)
+
+    configurations = {
+        configuration.department_id: configuration.pages
+        for configuration in DepartmentPageConfiguration.query.all()
+    }
+    departments = Department.query.order_by(Department.name.asc()).all()
+    return jsonify({
+        "data": [
+            {
+                "id": department.id,
+                "name": department.name,
+                "pages": configurations.get(department.id)
+                or _default_department_pages(department.name),
+            }
+            for department in departments
+        ],
+        "error": None,
+    })
+
+
+@admin_bp.put("/departments/<int:department_id>/pages")
+@jwt_required()
+def update_department_pages(department_id):
+    actor = _actor()
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_super_admin(actor)
+    ):
+        return _error("Only an active super administrator can configure department pages", "FORBIDDEN", 403)
+
+    department = db.session.get(Department, department_id)
+    if department is None:
+        return _error("Department not found", "NOT_FOUND", 404)
+    payload = request.get_json(silent=True)
+    pages = payload.get("pages") if isinstance(payload, dict) else None
+    if (
+        not isinstance(pages, list)
+        or any(not isinstance(page, str) or page not in DEPARTMENT_PAGE_LABELS for page in pages)
+        or len(pages) != len(set(pages))
+    ):
+        return _error(
+            "pages must be a list of supported, unique department page identifiers",
+            "VALIDATION_ERROR",
+            422,
+        )
+
+    configuration = db.session.get(DepartmentPageConfiguration, department_id)
+    if not pages:
+        if configuration is not None:
+            db.session.delete(configuration)
+        pages = _default_department_pages(department.name)
+        db.session.commit()
+        return jsonify({
+            "data": {
+                "id": department.id,
+                "name": department.name,
+                "pages": pages,
+            },
+            "error": None,
+        })
+    if configuration is None:
+        configuration = DepartmentPageConfiguration(
+            department_id=department_id,
+            pages=pages,
+        )
+        db.session.add(configuration)
+    else:
+        configuration.pages = pages
+    db.session.commit()
+    return jsonify({
+        "data": {
+            "id": department.id,
+            "name": department.name,
+            "pages": configuration.pages,
+        },
+        "error": None,
+    })
 
 
 @admin_bp.get("/users")

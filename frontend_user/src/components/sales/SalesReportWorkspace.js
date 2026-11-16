@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getAuthToken } from '../../services/authStorage';
+import { getAuthToken, refreshAuthToken } from '../../services/authStorage';
 import { apiUrl } from '../../services/apiConfig';
 import { AgentPicker } from './AgentPicker';
 import { ComplianceBadge } from './ComplianceBadge';
@@ -17,8 +17,22 @@ export const useSalesQuery = (endpoint, params = {}) => {
   useEffect(() => {
     let active = true;
     setState({ data: null, loading: true, error: null });
-    fetch(apiUrl(url), { headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {} })
-      .then(async (response) => { const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error?.message || body.error || 'Unable to load sales data.'); return body.data; })
+    const request = () => fetch(apiUrl(url), { headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {} });
+    request()
+      .then(async (response) => {
+        if (response.status === 401 && await refreshAuthToken()) return request();
+        return response;
+      })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 403 && String(body.error?.message || body.error || '').includes('Sales Reports are disabled')) {
+            window.dispatchEvent(new Event('dashboard-feature-access-denied'));
+          }
+          throw new Error(body.error?.message || body.error || 'Unable to load sales data.');
+        }
+        return body.data;
+      })
       .then((data) => active && setState({ data, loading: false, error: null }))
       .catch((error) => active && setState({ data: null, loading: false, error }));
     return () => { active = false; };

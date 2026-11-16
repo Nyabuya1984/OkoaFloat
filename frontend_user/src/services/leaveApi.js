@@ -13,9 +13,16 @@ const request = async (path, options = {}) => {
     },
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const isJson = response.headers.get('content-type')?.includes('application/json');
+  const payload = isJson ? await response.json().catch(() => null) : null;
+  if (!payload) {
+    throw new Error(`The leave service returned an unexpected response (HTTP ${response.status}). Check that the backend is running and up to date.`);
+  }
   if (!response.ok) {
-    const message = payload.error?.message || payload.error || payload.message || 'Unable to complete the request.';
+    const message = payload.error?.message
+      || payload.error
+      || payload.message
+      || 'Unable to complete the request.';
     throw new Error(message);
   }
   return payload;
@@ -47,9 +54,9 @@ export const acknowledgeHandover = (requestId, name, statement) => request(`/req
 
 export const getHandoverRequest = (requestId) => request(`/requests/${requestId}/handover`);
 
-export const acceptHandover = (requestId, statement, signature, signatureDate) => request(`/requests/${requestId}/handover/accept`, {
+export const acceptHandover = (requestId, statement, fullName, signature, signatureDate) => request(`/requests/${requestId}/handover/accept`, {
   method: 'POST',
-  body: JSON.stringify({ statement, signature, signature_date: signatureDate }),
+  body: JSON.stringify({ statement, full_name: fullName, signature, signature_date: signatureDate }),
 });
 
 export const declineHandover = (requestId, reason) => request(`/requests/${requestId}/handover/decline`, {
@@ -74,10 +81,10 @@ export const getTeamCalendar = () => request('/team-calendar');
 export const getLeaveHistory = () => request('/requests/history');
 export const getDelegations = () => request('/requests/delegations');
 
-export const decideLeaveRequest = (requestId, decision, decisionComment) => request(
+export const decideLeaveRequest = (requestId, decision, decisionComment, signature) => request(
   `/requests/${requestId}/${decision}`,
   {
     method: 'POST',
-    body: JSON.stringify({ decision_comment: decisionComment }),
+    body: JSON.stringify({ decision_comment: decisionComment, signature }),
   },
 );

@@ -4,7 +4,7 @@ from flask import g, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 
 from app.extensions import db
-from app.models import User
+from app.models import Role, RolePermission, User, UserRole
 
 ROLE_TIERS = {
     "EMPLOYEE": 1,
@@ -14,6 +14,46 @@ ROLE_TIERS = {
     "SUPER_ADMIN": 4,
 }
 SUPERUSER_TIER = 4
+
+
+def _permission_matches(rule, permission):
+    if rule == permission:
+        return True
+    if rule.endswith(".*"):
+        return permission.startswith(rule[:-1])
+    return False
+
+
+def can(user, permission):
+    """Evaluate one permission using the user's single role and its DB policy."""
+    if user is None or not isinstance(permission, str) or not permission:
+        return False
+
+    assignment = (
+        UserRole.query.join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == user.id)
+        .with_entities(Role.id)
+        .one_or_none()
+    )
+    if assignment is None:
+        return False
+
+    rules = (
+        RolePermission.query.filter_by(role_id=assignment[0])
+        .join(RolePermission.permission)
+        .all()
+    )
+    allowed = any(
+        rule.effect == "allow"
+        and _permission_matches(rule.permission.name, permission)
+        for rule in rules
+    )
+    denied = any(
+        rule.effect == "deny"
+        and _permission_matches(rule.permission.name, permission)
+        for rule in rules
+    )
+    return allowed and not denied
 
 
 def normalize_role(value):
@@ -87,6 +127,36 @@ def _authenticated_user():
     if not user or not user.is_currently_active() or user.account_status != "approved":
         return None
     return user
+
+
+def enforce_permission(permission):
+    """Authorize the current JWT user for a scoped endpoint."""
+    if request.method == "OPTIONS":
+        return None
+    actor = _authenticated_user()
+    if actor is None:
+        return _forbidden("Account is not active or approved")
+    if not can(actor, permission):
+        return _forbidden()
+    g.rbac_user = actor
+    return None
+
+
+def assign_user_role(user, role_name):
+    """Set the user's one RBAC role, rejecting roles outside the seeded set."""
+    role = Role.query.filter_by(name=role_name).one_or_none()
+    if role is None:
+        raise ValueError(f"Unknown RBAC role: {role_name}")
+    assignment = UserRole.query.filter_by(user_id=user.id).one_or_none()
+    if assignment is None:
+        assignment = UserRole(user_id=user.id, role_id=role.id)
+        db.session.add(assignment)
+    else:
+        assignment.role_id = role.id
+    from app.utils.organization import update_assignment_role
+
+    update_assignment_role(user, role_name)
+    return assignment
 
 
 def require_min_tier(minimum_tier):
@@ -164,9 +234,17 @@ def self_or_manager(view):
 
 
 def require_scope(scope):
-    """Authorize the V2 data scope while preserving the caller's role tier."""
-    if scope not in {"mine", "team", "org"}:
-        raise ValueError("scope must be mine, team, or org")
+    """Validate a sales-report scope after the blueprint permission guard."""
+    if isinstance(scope, str):
+        allowed_scopes = {scope}
+    elif isinstance(scope, (set, tuple, list)):
+        allowed_scopes = set(scope)
+    else:
+        raise ValueError("scope must be mine, team, org, or a collection of them")
+
+    invalid_scopes = set(allowed_scopes) - {"mine", "team", "org"}
+    if invalid_scopes:
+        raise ValueError("scope must contain only mine, team, or org")
 
     def decorator(view):
         @wraps(view)
@@ -175,17 +253,63 @@ def require_scope(scope):
             if actor is None:
                 return _forbidden("Account is not active or approved")
             requested_scope = request.args.get("scope")
-            if requested_scope and requested_scope != scope:
-                return _forbidden(f"This endpoint requires scope={scope}")
-            actor_role = normalize_role(getattr(actor, "role", None))
-            if scope == "team" and actor_role not in {"MANAGER", "SYSTEM_ADMIN", "HR_ADMIN"} and not user_tier(actor) == SUPERUSER_TIER:
-                return _forbidden("Team scope requires manager or HR permissions")
-            if scope == "org" and actor_role not in {"SYSTEM_ADMIN", "HR_ADMIN"} and not is_super_admin(actor):
-                return _forbidden("Organization scope requires HR permissions")
-            g.sales_scope = scope
+            if requested_scope is not None:
+                if requested_scope not in allowed_scopes:
+                    allowed = ", ".join(sorted(allowed_scopes))
+                    return _forbidden(f"This endpoint requires one of scope={allowed}")
+            else:
+                requested_scope = "mine" if "mine" in allowed_scopes else next(iter(sorted(allowed_scopes)))
+            has_permission = can(actor, "sales_reports.view")
+            has_hierarchy_scope = (
+                requested_scope != "mine"
+                and _has_hierarchy_sales_scope(actor, requested_scope)
+            )
+            has_admin_scope = (
+                requested_scope in {"team", "org"}
+                and (
+                    is_system_admin(actor)
+                    or (has_permission and is_hr_admin(actor))
+                )
+            )
+            if requested_scope == "mine":
+                allowed = has_permission
+            else:
+                allowed = has_hierarchy_scope or has_admin_scope
+            if not allowed:
+                return _forbidden()
+            g.sales_scope = requested_scope
             g.sales_actor = actor
             return view(*args, **kwargs)
 
         return wrapped
 
     return decorator
+
+
+def _has_hierarchy_sales_scope(actor, scope):
+    """Allow assigned sales managers to use only their hierarchy's report scope."""
+    from app.utils.organization import get_active_assignment
+
+    actor_id = getattr(actor, "id", None)
+    if actor_id is None:
+        return False
+    assignment = get_active_assignment(actor_id)
+    if not assignment:
+        return False
+    organizational_role = assignment.organizational_role
+    if organizational_role == "general_manager":
+        return scope in {"team", "org"}
+    if scope != "team" or organizational_role not in {
+        "team_leader",
+        "department_manager",
+    }:
+        return False
+    department = (
+        (assignment.department_name or "")
+        .strip()
+        .lower()
+        .replace("&", " and ")
+        .replace("-", " ")
+    )
+    department = " ".join(department.split())
+    return "sales" in department or "marketing" in department

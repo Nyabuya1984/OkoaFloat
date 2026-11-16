@@ -13,10 +13,17 @@ class OtpChallenge(db.Model):
     personal_email_address = db.Column(db.String(255), nullable=True)
     plaintext_code = db.Column(db.String(6), nullable=True)
     purpose = db.Column(
-        db.Enum("registration", "login", "password_reset", "account_recovery", name="otp_purpose"),
+        db.Enum(
+            "registration",
+            "login",
+            "password_reset",
+            "account_recovery",
+            "reset",
+            name="otp_purpose",
+        ),
         nullable=False,
     )
-    code_hash = db.Column(db.String(128), nullable=False)
+    code_hash = db.Column(db.String(128), nullable=True)
     status = db.Column(
         db.Enum("active", "expired", "verified", name="otp_status"),
         nullable=False,

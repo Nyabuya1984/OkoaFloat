@@ -18,6 +18,8 @@ const formatMoney = (value) => new Intl.NumberFormat('en-KE', {
   maximumFractionDigits: 2,
 }).format(Number(value) || 0);
 
+const displayValue = (value) => value || 'Not provided';
+
 export default function LogInteractionModal({ loan, onClose, onSave }) {
   const [submitError, setSubmitError] = useState('');
   const {
@@ -92,6 +94,39 @@ export default function LogInteractionModal({ loan, onClose, onSave }) {
           <strong>{formatMoney(loan.loan_balance)}</strong>
         </div>
 
+        <section className="debt-call-context" aria-label="Client and loan details">
+          <div className="debt-call-context-heading">
+            <div>
+              <h3>Client details</h3>
+              <p>Reference information for your call</p>
+            </div>
+            <span className="debt-call-status">{String(loan.status || 'unknown').replace(/_/g, ' ')}</span>
+          </div>
+          <dl className="debt-call-contact-grid">
+            <div><dt>Debtor's first name</dt><dd>{displayValue(loan.first_name || loan.agent_name?.split(' ')[0])}</dd></div>
+            <div><dt>Middle and last names</dt><dd>{displayValue(loan.other_names || loan.agent_name?.split(' ').slice(1).join(' '))}</dd></div>
+            <div><dt>Primary phone number of the agent</dt><dd>{loan.agent_number ? <a href={`tel:${loan.agent_number}`}>{loan.agent_number}</a> : 'Not provided'}</dd></div>
+            <div><dt>Phone number of the business owner</dt><dd>{loan.owner_msisdn ? <a href={`tel:${loan.owner_msisdn}`}>{loan.owner_msisdn}</a> : 'Not provided'}</dd></div>
+            <div><dt>Phone number of the business operator</dt><dd>{loan.operator_msisdn ? <a href={`tel:${loan.operator_msisdn}`}>{loan.operator_msisdn}</a> : 'Not provided'}</dd></div>
+            <div><dt>Agent number</dt><dd>{displayValue(loan.agent_no)}</dd></div>
+            <div><dt>Store number</dt><dd>{displayValue(loan.store_number)}</dd></div>
+            <div><dt>Registered name of the business</dt><dd>{displayValue(loan.business_name)}</dd></div>
+            <div><dt>Physical location of the business</dt><dd>{displayValue(loan.business_location || loan.location)}</dd></div>
+          </dl>
+
+          <h3 className="debt-call-loan-heading">Loan summary</h3>
+          <dl className="debt-call-financial-grid">
+            <div><dt>Principal amount (original loan)</dt><dd>{formatMoney(loan.loan_amount)}</dd></div>
+            <div><dt>Total payments received to date</dt><dd>{formatMoney(loan.amount_paid)}</dd></div>
+            <div><dt>Outstanding amount remaining</dt><dd>{formatMoney(loan.loan_balance)}</dd></div>
+            <div><dt>Number of loans borrowed</dt><dd>{loan.loans_borrowed ?? 'Not available'}</dd></div>
+          </dl>
+          <dl className="debt-call-loan-meta">
+            <div><dt>Date the loan was disbursed</dt><dd>{displayValue(loan.loan_date)}</dd></div>
+            <div><dt>Days since loan was issued</dt><dd>{loan.no_of_days ?? 'Not available'}</dd></div>
+          </dl>
+        </section>
+
         {submitError && <div className="leave-alert error" role="alert">{submitError}</div>}
         <form className="debt-modal-form" onSubmit={handleSubmit(submit)} noValidate>
           <fieldset className="debt-interaction-options">
@@ -101,9 +136,10 @@ export default function LogInteractionModal({ loan, onClose, onSave }) {
               <button
                 key={value}
                 type="button"
-                className={`debt-interaction-option ${outcome === value ? 'selected' : ''}`}
+                className={`debt-interaction-option outcome-${value} ${outcome === value ? 'selected' : ''}`}
                 aria-pressed={outcome === value}
                 onClick={() => setValue('outcome', value, { shouldValidate: true, shouldDirty: true, shouldTouch: true })}
+                aria-label={label}
               >
                 <span>{label}</span>
                 {outcome === value && <span className="debt-option-selected-mark" aria-hidden="true">✓</span>}

@@ -1,11 +1,20 @@
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import hashlib
+import hmac
 import os
 import re
 import secrets
 from uuid import uuid4
 
-from flask import Blueprint, current_app, jsonify, request, send_from_directory
+from flask import (
+    Blueprint,
+    current_app,
+    has_app_context,
+    jsonify,
+    request,
+    send_from_directory,
+)
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
@@ -13,13 +22,36 @@ from flask_jwt_extended import (
     get_jwt_identity,
     jwt_required,
 )
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
 
-from app.extensions import db
-from app.models import AuditLog, AuthSession, Department, LeavePolicy, LeaveType, OtpChallenge, User
-from app.utils.email_delivery import EmailDeliveryConfigurationError, send_otp_email
+from app.extensions import db, limiter
+from app.models import (
+    AuditLog,
+    AuthSession,
+    Department,
+    DepartmentAssignmentHistory,
+    LeaveBalance,
+    LeavePolicy,
+    LeaveType,
+    OtpChallenge,
+    Role,
+    User,
+    UserRole,
+)
 from app.utils.phone import normalize_ke_phone
+from app.services.sms import send_otp_sms
+from flask_limiter.util import get_remote_address
 from app.utils.rbac import is_super_admin, is_system_admin, normalize_role
+from app.utils.organization import (
+    get_active_assignment,
+    assignment_capacity_conflict_message,
+    may_assign_organizational_role,
+    may_manage_transfers,
+    transition_department,
+    update_assignment_role,
+    validate_reporting_manager,
+)
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -38,7 +70,36 @@ def _claims(user):
 
 
 def _hash_otp(code):
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+    secret = str(current_app.config["SECRET_KEY"]).encode("utf-8")
+    return hmac.new(secret, code.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _user_response_data(user):
+    data = user.to_dict()
+    assignment = get_active_assignment(user.id)
+    if not assignment:
+        return data
+
+    department = (
+        "All"
+        if assignment.organizational_role == "general_manager"
+        else assignment.department_name
+    )
+    data.update({
+        "department": department,
+        "department_name": department,
+        "department_role": assignment.role_name,
+        "organizational_role": assignment.organizational_role,
+        "active_assignment": {
+            "department_id": assignment.department_id,
+            "department": department,
+            "department_name": department,
+            "department_role": assignment.role_name,
+            "organizational_role": assignment.organizational_role,
+            "started_at": assignment.started_at.isoformat(),
+        },
+    })
+    return data
 
 
 def _normalize_email(value):
@@ -70,59 +131,72 @@ def _valid_email(value):
     )
 
 
+def _otp_account_rate_limit_key():
+    payload = request.get_json(silent=True) or {}
+    account_key = normalize_ke_phone(payload.get("phone_number"))
+    if not account_key:
+        account_key = _normalize_email(payload.get("email"))
+    secret = str(current_app.config["SECRET_KEY"]).encode("utf-8")
+    digest = hmac.new(secret, account_key.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"otp-account:{digest}"
+
+
 def _create_otp(user, purpose):
     code = f"{secrets.randbelow(1_000_000):06d}"
     personal_email = _normalize_email(user.personal_email or user.email)
-    store_plaintext = bool(current_app.config.get("STORE_PLAINTEXT_OTP")) and (
-        current_app.debug or current_app.testing
+    store_plaintext_otp = bool(
+        current_app.debug
+        or current_app.testing
+        or current_app.config.get("OTP_STORE_PLAINTEXT")
     )
+    OtpChallenge.query.filter_by(
+        user_id=user.id, purpose=purpose, status="active"
+    ).update({"status": "expired"}, synchronize_session=False)
     challenge = OtpChallenge(
         user_id=user.id,
         phone_number=user.phone_number,
         email_address=_normalize_email(user.email),
         personal_email_address=personal_email,
-        plaintext_code=code if store_plaintext else None,
+        plaintext_code=code if store_plaintext_otp else None,
         purpose=purpose,
-        code_hash=_hash_otp(code),
+        code_hash=None if store_plaintext_otp else _hash_otp(code),
         status="active",
-        expires_at=datetime.utcnow() + timedelta(hours=2),
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
     )
     db.session.add(challenge)
     db.session.flush()
-    if store_plaintext:
-        print(
+    if store_plaintext_otp:
+        current_app.logger.info(
             "\n"
-            "========================================\n"
-            "  OKOA FLOAT VERIFICATION CODE\n"
-            f"  PURPOSE: {purpose.replace('_', ' ').upper()}\n"
-            f"  PHONE:   {challenge.phone_number}\n"
-            f"  OTP:     {code}\n"
-            "========================================",
-            flush=True,
+            "========== DEVELOPMENT OTP ==========\n"
+            "Purpose: %s\n"
+            "Phone:   %s\n"
+            "Code:    %s\n"
+            "Expires: %s UTC\n"
+            "=====================================",
+            purpose.replace("_", " ").title(),
+            challenge.phone_number,
+            code,
+            challenge.expires_at.strftime("%Y-%m-%d %H:%M:%S"),
         )
-    email_errors = []
-    recipients = dict.fromkeys((challenge.email_address, personal_email))
-    for recipient in recipients:
+
+    sms_sent = False
+    if not current_app.testing and current_app.config.get("SMS_ENABLED", True):
         try:
-            send_otp_email(
-                recipient,
-                purpose,
-                challenge.phone_number,
-                code,
-                challenge.expires_at,
+            sms_sent, sms_error = send_otp_sms(user.phone_number, code, purpose)
+            if not sms_sent:
+                current_app.logger.warning(
+                    "SMS delivery skipped or failed for %s (purpose=%s): %s",
+                    user.phone_number,
+                    purpose,
+                    sms_error,
+                )
+        except Exception:
+            current_app.logger.exception(
+                "Unexpected error attempting SMS delivery for %s", user.phone_number
             )
-        except (EmailDeliveryConfigurationError, RuntimeError) as exc:
-            email_errors.append(exc)
-    if email_errors and not store_plaintext:
-        raise email_errors[0]
-    email_error = "; ".join(str(error) for error in email_errors) or None
-    if email_error:
-        current_app.logger.error(
-            "OTP email delivery failed for one or more addresses during local testing; "
-            "the code remains available in the development console and OTP table: %s",
-            email_error,
-        )
-    return challenge, email_error
+
+    return challenge, sms_sent
 
 
 def _verify_otp(phone_number, code, purpose, email=None):
@@ -146,9 +220,23 @@ def _verify_otp(phone_number, code, purpose, email=None):
             return None, "Too many OTP attempts"
         return None, "Invalid OTP challenge"
 
-    code_hash = _hash_otp(code or "")
+    submitted_code = code if isinstance(code, str) else ""
+    allow_plaintext_otp = bool(
+        current_app.debug
+        or current_app.testing
+        or current_app.config.get("OTP_STORE_PLAINTEXT")
+    )
     for challenge in usable:
-        if secrets.compare_digest(challenge.code_hash, code_hash):
+        plaintext_matches = bool(
+            allow_plaintext_otp
+            and challenge.plaintext_code
+            and secrets.compare_digest(challenge.plaintext_code, submitted_code)
+        )
+        hashed_matches = bool(
+            challenge.code_hash
+            and secrets.compare_digest(challenge.code_hash, _hash_otp(submitted_code))
+        )
+        if plaintext_matches or hashed_matches:
             submitted_email = _normalize_email(email)
             if email is not None and not any(
                 secrets.compare_digest(registered_email, submitted_email)
@@ -157,14 +245,17 @@ def _verify_otp(phone_number, code, purpose, email=None):
                     challenge.personal_email_address or challenge.email_address,
                 )
             ):
-                return None, "Email does not match the registered account"
-            challenge.attempts += 1
-            challenge.verified_at = now
-            challenge.status = "verified"
+                challenge.attempts += 1
+                if challenge.attempts >= 5:
+                    challenge.status = "expired"
+                return None, "Invalid OTP"
+            db.session.delete(challenge)
             return challenge, None
 
     for challenge in usable:
         challenge.attempts += 1
+        if challenge.attempts >= 5:
+            challenge.status = "expired"
     return None, "Invalid OTP"
 
 
@@ -191,7 +282,7 @@ def _session_response(user):
         "access_token": create_access_token(identity=str(user.id), additional_claims=claims),
         "refresh_token": create_refresh_token(identity=str(user.id), additional_claims=claims),
         "session_id": session_id,
-        "user": user.to_dict(),
+        "user": _user_response_data(user),
     }
 
 
@@ -200,6 +291,38 @@ def _error(message, code="BAD_REQUEST", status=400, fields=None):
     if fields:
         error["fields"] = fields
     return jsonify({"success": False, "error": error}), status
+
+
+def _is_testing_context():
+    return bool(has_app_context() and current_app.testing)
+
+
+def _mask_phone(phone_number):
+    clean = str(phone_number or "").strip()
+    last4 = clean[-4:] if len(clean) >= 4 else clean
+    return f"...{last4}"
+
+
+def _otp_generated_message(action="verification", sms_sent=False, phone_number=None):
+    if not _is_testing_context():
+        if phone_number and sms_sent:
+            return f"A 6-digit {action} code has been sent to your phone number ending in {_mask_phone(phone_number)}"
+        if sms_sent:
+            return f"A 6-digit {action} code has been sent to your phone number."
+        return f"We couldn't send a {action} code by SMS. Please try again or contact support."
+    return (
+        f"A {action} code was generated and saved to the database and development console."
+    )
+
+
+def _password_reset_message(sms_sent=False, phone_number=None):
+    if not _is_testing_context():
+        if phone_number and sms_sent:
+            return f"A 6-digit verification code has been sent to your phone number ending in {_mask_phone(phone_number)}"
+        if sms_sent:
+            return "If the account is eligible, a verification code was sent to your phone number."
+        return "We couldn't send a password reset code by SMS. Please try again or contact support."
+    return "If the account is eligible, a verification code was generated and saved to the database and development console."
 
 
 def _record_security_event(action, message, metadata=None):
@@ -222,27 +345,91 @@ def _registration_fields(payload):
             fields[field] = "This field is required."
         elif not 2 <= len(value.strip()) <= 120:
             fields[field] = "Must be between 2 and 120 characters."
+    if (
+        "department" not in fields
+        and _canonical_department_name(payload.get("department")) is None
+    ):
+        fields["department"] = (
+            "Choose Sales & Marketing, Debt Collection, or Customer Care."
+        )
     return fields
 
 
-def _department_for(name):
-    normalized = " ".join((name or "").split())
-    if not normalized:
-        raise ValueError("Department name is required")
-    department = Department.query.filter(db.func.lower(Department.name) == normalized.lower()).first()
+def _canonical_department_name(name, allow_custom=False):
+    if not isinstance(name, str):
+        return None
+    name = " ".join(name.strip().split())
+    if not 2 <= len(name) <= 120 or name.casefold() == "all":
+        return None
+    normalized = " ".join(
+        name.casefold().replace("&", " and ").replace("-", " ").split()
+    )
+    canonical_name = {
+        "sales": "Sales & Marketing",
+        "sales and marketing": "Sales & Marketing",
+        "sales marketing": "Sales & Marketing",
+        "debt collection": "Debt Collection",
+        "customer care": "Customer Care",
+    }.get(normalized)
+    if canonical_name or not allow_custom:
+        return canonical_name
+    return name
+
+
+def _department_for(name, allow_custom=False):
+    canonical_name = _canonical_department_name(name, allow_custom=allow_custom)
+    if not canonical_name:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Department name is required")
+        raise ValueError("Department name must be between 2 and 120 characters")
+    department = Department.query.filter(
+        db.func.lower(Department.name) == canonical_name.lower()
+    ).first()
     if not department:
-        department = Department(name=normalized)
+        department = Department(name=canonical_name)
         db.session.add(department)
         db.session.flush()
     return department
+
+
+def _assignment_department_for(name, organizational_role, allow_custom=True):
+    if organizational_role == "general_manager":
+        if not isinstance(name, str) or name.strip().casefold() != "all":
+            raise ValueError("The General Manager department must be All")
+        return None
+    return _department_for(name, allow_custom=allow_custom)
 
 
 def _can_create_user(actor, target_role, target_department_name=None):
     if not actor or not actor.is_active or actor.account_status != "approved":
         return False, "Account is not active"
     actor_role = normalize_role(getattr(actor, "role", None))
+    organizational_assignment = get_active_assignment(actor.id)
+    organizational_role = (
+        organizational_assignment.organizational_role
+        if organizational_assignment
+        else None
+    )
     target_role_name = normalize_role(target_role)
     if is_super_admin(actor):
+        return True, None
+    if organizational_role == "general_manager":
+        if target_role_name not in {"EMPLOYEE", "MANAGER"}:
+            return False, "Organizational managers may create employee accounts only"
+        return True, None
+    if (
+        organizational_role == "department_manager"
+        and target_role_name == "EMPLOYEE"
+        and organizational_assignment.department_name.casefold()
+        == (target_department_name or "").strip().casefold()
+    ):
+        return True, None
+    if (
+        organizational_role == "team_leader"
+        and target_role_name == "EMPLOYEE"
+        and organizational_assignment.department_name.casefold()
+        == (target_department_name or "").strip().casefold()
+    ):
         return True, None
     if actor_role in {"SYSTEM_ADMIN", "HR_ADMIN"}:
         if target_role_name == "SUPER_ADMIN":
@@ -276,51 +463,36 @@ def _phone_login(payload):
             {"phone_number": phone_number, "reason": "wrong_credentials"},
         )
         return _error("Wrong phone number or password", "UNAUTHORIZED", 401)
-    if user.account_status in ("banned", "deactivated") or not user.is_active:
+    if not user.is_currently_active() or user.account_status in ("banned", "deactivated"):
         return _error("This account is no longer active", "FORBIDDEN", 403)
     if user.account_status != "approved":
         return jsonify({
             "account_status": "pending",
             "message": "Your account is pending approval by an administrator or manager.",
         }), 403
-    if not _resend_allowed(user, "login"):
-        return _error(
-            f"Please wait {OTP_RESEND_DELAY_SECONDS} seconds before requesting another OTP",
-            "TOO_MANY_REQUESTS",
-            429,
-        )
+    sms_sent = False
     try:
-        challenge, email_error = _create_otp(user, "login")
+        challenge, sms_sent = _create_otp(user, "login")
         db.session.commit()
-    except EmailDeliveryConfigurationError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
-    except RuntimeError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Unable to create or deliver login OTP")
-        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
+        current_app.logger.exception("Unable to create login OTP")
+        return _error(
+            "Unable to create sign-in code. Please try again later.",
+            "OTP_CREATION_FAILED",
+            502,
+        )
     return jsonify({
         "verification_required": True,
-        "email_sent": email_error is None,
-        "message": (
-            "A verification code was sent to your registered work and personal email addresses."
-            if email_error is None
-            else "The OTP is stored in the development database and shown in the server console. "
-            "Email delivery failed; configure SMTP before relying on email OTPs."
-        ),
+        "message": _otp_generated_message("verification", sms_sent=sms_sent, phone_number=user.phone_number),
     })
 
 
-@auth_bp.post("/login")
-def login():
-    return _phone_login(request.get_json(silent=True) or {})
-
-
 @auth_bp.post("/phone-login")
-def phone_login():
+@auth_bp.post("/login")
+@limiter.limit("3 per 10 minutes", key_func=_otp_account_rate_limit_key)
+@limiter.limit("3 per 10 minutes", key_func=get_remote_address)
+def login():
     return _phone_login(request.get_json(silent=True) or {})
 
 
@@ -328,21 +500,17 @@ def phone_login():
 def register():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    email = _normalize_email(payload.get("email"))
-    personal_email = _normalize_email(payload.get("personal_email"))
-    required = ("email", "password")
+    email = _normalize_email(payload.get("official_email") or payload.get("email"))
+    personal_email = email
+    required = ("password",)
     field_errors = _registration_fields(payload)
     if not phone_number:
         field_errors["phone_number"] = "Enter a valid phone number."
     missing = [field for field in required if not payload.get(field)]
     if not email:
-        field_errors["email"] = "This field is required."
+        field_errors["official_email"] = "This field is required."
     elif not _valid_email(email):
-        field_errors["email"] = "Enter a valid email address."
-    if not personal_email:
-        field_errors["personal_email"] = "This field is required."
-    elif not _valid_email(personal_email):
-        field_errors["personal_email"] = "Enter a valid personal email address."
+        field_errors["official_email"] = "Enter a valid email address."
     if missing:
         field_errors.update({field: "This field is required." for field in missing})
     if field_errors:
@@ -360,7 +528,7 @@ def register():
 
     if existing_by_email and existing_by_phone and existing_by_email.id != existing_by_phone.id:
         return _error("Email and phone number belong to different accounts", status=409)
-    email_addresses = (email, personal_email)
+    email_addresses = (email,)
     address_conflicts = User.query.filter(
         (db.func.lower(User.email).in_(email_addresses))
         | (db.func.lower(User.personal_email).in_(email_addresses))
@@ -414,27 +582,22 @@ def register():
         user.set_password(payload["password"])
         db.session.add(user)
         db.session.flush()
-        challenge, email_error = _create_otp(user, "registration")
+        update_assignment_role(
+            user, None, organizational_role="field_agent"
+        )
+        challenge, sms_sent = _create_otp(user, "registration")
         db.session.commit()
-    except EmailDeliveryConfigurationError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
-    except RuntimeError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Unable to create or deliver registration OTP")
-        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
+        current_app.logger.exception("Unable to create registration OTP")
+        return _error(
+            "Unable to create verification code. Please try again later.",
+            "OTP_CREATION_FAILED",
+            502,
+        )
     return jsonify({
         "verification_required": True,
-        "email_sent": email_error is None,
-        "message": (
-            "A verification code was sent to your registered work and personal email addresses."
-            if email_error is None
-            else "The OTP is stored in the development database and shown in the server console. "
-            "Email delivery failed; configure SMTP before relying on email OTPs."
-        ),
+        "message": _otp_generated_message("verification", sms_sent=sms_sent, phone_number=user.phone_number),
     }), 201
 
 
@@ -442,7 +605,7 @@ def register():
 def verify_registration():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    email = _normalize_email(payload.get("email"))
+    email = _normalize_email(payload.get("official_email") or payload.get("email"))
     if not phone_number or not payload.get("otp") or not email:
         return _error("phone_number, email, and otp are required")
     try:
@@ -478,6 +641,13 @@ def verify_otp():
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
         user = db.session.get(User, challenge.user_id)
+        if (
+            not user
+            or not user.is_currently_active()
+            or user.account_status != "approved"
+        ):
+            db.session.rollback()
+            return _error("This account is no longer active", "FORBIDDEN", 403)
         response = _session_response(user)
         db.session.commit()
     except Exception:
@@ -491,7 +661,17 @@ def _admin_access(actor):
     if not actor or not actor.is_active or actor.account_status != "approved":
         return False
     role = normalize_role(getattr(actor, "role", None))
-    return role in {"MANAGER", "SYSTEM_ADMIN", "HR_ADMIN", "SUPER_ADMIN"} or getattr(actor, "is_superuser", False) is True
+    assignment = get_active_assignment(actor.id)
+    return (
+        role in {"MANAGER", "SYSTEM_ADMIN", "HR_ADMIN", "SUPER_ADMIN"}
+        or getattr(actor, "is_superuser", False) is True
+        or bool(
+            assignment
+            and assignment.organizational_role in {
+                "general_manager", "department_manager", "team_leader"
+            }
+        )
+    )
 
 
 def _can_manage_target(actor, target):
@@ -502,6 +682,11 @@ def _can_manage_target(actor, target):
     actor_role = normalize_role(getattr(actor, "role", None))
     if is_super_admin(actor) or actor_role in {"SYSTEM_ADMIN", "HR_ADMIN"}:
         return True
+    actor_assignment = get_active_assignment(actor.id)
+    if actor_assignment and actor_assignment.organizational_role == "general_manager":
+        return True
+    if actor_assignment and may_manage_transfers(actor, target):
+        return True
     return actor_role == "MANAGER" and (target.id == actor.id or target.manager_id == actor.id)
 
 
@@ -509,6 +694,226 @@ def _protect_super_admin_target(actor, target):
     """Prevent every non-super-admin from reading or mutating the protected account."""
     if is_super_admin(target) and not is_super_admin(actor):
         return _error("Unauthorized action", "FORBIDDEN", 403)
+    return None
+
+
+def _purge_user_references(user_ids):
+    user_table = User.__table__
+    root_rows = db.session.execute(
+        select(user_table).where(user_table.c.id.in_(user_ids))
+    ).mappings().all()
+
+    def row_key(table, row):
+        return tuple(row[column.name] for column in table.primary_key.columns)
+
+    root_keys = {row_key(user_table, row) for row in root_rows}
+    children_by_parent = {}
+    for child_table in db.metadata.tables.values():
+        for constraint in child_table.foreign_key_constraints:
+            elements = tuple(constraint.elements)
+            if not elements:
+                continue
+            parent_table = elements[0].column.table
+            if all(element.column.table is parent_table for element in elements):
+                children_by_parent.setdefault(parent_table, []).append(
+                    (child_table, elements)
+                )
+
+    rows_to_delete = {}
+    rows_to_clear = {}
+    pending = {user_table: {row_key(user_table, row): row for row in root_rows}}
+    processed = set()
+
+    while pending:
+        parent_table, parent_rows = pending.popitem()
+        unprocessed_rows = [
+            row
+            for key, row in parent_rows.items()
+            if (parent_table, key) not in processed
+        ]
+        if not unprocessed_rows:
+            continue
+
+        for offset in range(0, len(unprocessed_rows), 100):
+            row_batch = unprocessed_rows[offset:offset + 100]
+            processed.update(
+                (parent_table, row_key(parent_table, row)) for row in row_batch
+            )
+            for child_table, elements in children_by_parent.get(parent_table, ()):
+                conditions = [
+                    and_(*(
+                        child_table.c[element.parent.name] == row[element.column.name]
+                        for element in elements
+                    ))
+                    for row in row_batch
+                ]
+                related_rows = db.session.execute(
+                    select(child_table).where(or_(*conditions))
+                ).mappings().all()
+                required_reference = any(
+                    not element.parent.nullable for element in elements
+                )
+
+                for row in related_rows:
+                    key = row_key(child_table, row)
+                    if child_table is user_table and key in root_keys:
+                        if not required_reference:
+                            rows_to_clear.setdefault(child_table, {}).setdefault(
+                                key, {}
+                            ).update({
+                                element.parent.name: None for element in elements
+                            })
+                        continue
+                    if required_reference:
+                        table_rows = rows_to_delete.setdefault(child_table, {})
+                        if key not in table_rows:
+                            table_rows[key] = row
+                            pending.setdefault(child_table, {})[key] = row
+                    else:
+                        table_rows = rows_to_clear.setdefault(child_table, {})
+                        table_rows.setdefault(key, {}).update(
+                            {element.parent.name: None for element in elements}
+                        )
+
+    for table, records in rows_to_clear.items():
+        for key, column_names in records.items():
+            predicate = and_(
+                *(column == value for column, value in zip(table.primary_key.columns, key))
+            )
+            db.session.execute(
+                update(table).where(predicate).values(
+                    {column_name: None for column_name in column_names}
+                )
+            )
+
+    remaining_tables = set(rows_to_delete)
+    while remaining_tables:
+        blocked_parent_tables = set()
+        for child_table in remaining_tables:
+            for constraint in child_table.foreign_key_constraints:
+                elements = tuple(constraint.elements)
+                if not elements or any(element.parent.nullable for element in elements):
+                    continue
+                parent_table = elements[0].column.table
+                if parent_table in remaining_tables and all(
+                    element.column.table is parent_table for element in elements
+                ):
+                    blocked_parent_tables.add(parent_table)
+
+        leaf_tables = remaining_tables - blocked_parent_tables
+        if not leaf_tables:
+            raise ValueError("Cannot determine a safe order for dependent user records")
+
+        for table in leaf_tables:
+            predicates = [
+                and_(
+                    *(column == value for column, value in zip(table.primary_key.columns, key))
+                )
+                for key in rows_to_delete[table]
+            ]
+            db.session.execute(table.delete().where(or_(*predicates)))
+        remaining_tables -= leaf_tables
+
+
+def _apply_admin_user_status(actor, target, status):
+    if not isinstance(status, str):
+        return _error(
+            "status must be pending, active, deactivated, or archived",
+            "VALIDATION_ERROR",
+            422,
+        )
+    status = status.strip().lower()
+    if status not in {"pending", "active", "deactivated", "archived"}:
+        return _error(
+            "status must be pending, active, deactivated, or archived",
+            "VALIDATION_ERROR",
+            422,
+        )
+    if target.id == actor.id:
+        return _error("You cannot change your own account status", "CONFLICT", 409)
+
+    if status == "active":
+        assignment = get_active_assignment(target.id)
+        if (
+            not assignment
+            and not is_super_admin(actor)
+        ):
+            return _error(
+                "A valid department assignment is required before activation",
+                "ORGANIZATION_ASSIGNMENT_REQUIRED",
+                409,
+            )
+        if assignment and (
+            not assignment.department_id
+            or assignment.department_id != target.department_id
+        ):
+            return _error(
+                "A valid department assignment is required before activation",
+                "ORGANIZATION_ASSIGNMENT_REQUIRED",
+                409,
+            )
+        if assignment and (
+            assignment.organizational_role != "general_manager"
+            and not target.manager_id
+        ):
+            return _error(
+                "A valid reporting manager is required before activation",
+                "REPORTING_MANAGER_REQUIRED",
+                409,
+            )
+        if assignment:
+            department = db.session.get(Department, assignment.department_id)
+            if not department:
+                return _error(
+                    "The assigned department no longer exists",
+                    "ORGANIZATION_ASSIGNMENT_REQUIRED",
+                    409,
+                )
+            try:
+                validate_reporting_manager(
+                    target,
+                    department,
+                    assignment.organizational_role,
+                    target.manager_id,
+                    actor,
+                )
+            except ValueError as error:
+                return _error(str(error), "INVALID_REPORTING_CHAIN", 409)
+
+    if status == "pending":
+        target.is_active = True
+        target.is_archived = False
+        target.account_status = "pending"
+        target.approved_by = None
+        target.approved_at = None
+        target.deactivated_at = None
+        target.deactivated_by = None
+        target.archived_at = None
+        target.archived_by = None
+    elif status == "active":
+        was_pending = target.account_status == "pending"
+        target.is_active = True
+        target.is_archived = False
+        target.account_status = "approved"
+        if was_pending:
+            target.approved_by = actor.id
+            target.approved_at = datetime.utcnow()
+        target.deactivated_at = None
+        target.deactivated_by = None
+        target.archived_at = None
+        target.archived_by = None
+    else:
+        target.is_active = False
+        target.is_archived = status == "archived"
+        target.account_status = "deactivated"
+        target.deactivated_at = datetime.utcnow()
+        target.deactivated_by = actor.id
+        if status == "archived":
+            target.archived_at = datetime.utcnow()
+            target.archived_by = actor.id
+        else:
+            target.archived_at = None
+            target.archived_by = None
     return None
 
 
@@ -537,8 +942,10 @@ def create_department():
         return _error("Only the super admin can create departments", "FORBIDDEN", 403)
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
-    if not name:
-        return _error("Department name is required", "VALIDATION_ERROR", 422)
+    canonical_name = _canonical_department_name(name, allow_custom=True)
+    if canonical_name is None:
+        return _error("Department name must be between 2 and 120 characters", "VALIDATION_ERROR", 422)
+    name = canonical_name
     existing = Department.query.filter(db.func.lower(Department.name) == name.lower()).first()
     if existing:
         return jsonify({"data": {"id": existing.id, "name": existing.name}, "error": None, "message": "Department already exists"})
@@ -559,8 +966,10 @@ def update_department(department_id):
         return _error("Department not found", "NOT_FOUND", 404)
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
-    if not name:
-        return _error("Department name is required", "VALIDATION_ERROR", 422)
+    canonical_name = _canonical_department_name(name, allow_custom=True)
+    if canonical_name is None:
+        return _error("Department name must be between 2 and 120 characters", "VALIDATION_ERROR", 422)
+    name = canonical_name
     duplicate = Department.query.filter(db.func.lower(Department.name) == name.lower(), Department.id != dept.id).first()
     if duplicate:
         return _error("A department with that name already exists", "CONFLICT", 409)
@@ -634,6 +1043,7 @@ def create_leave_type():
     db.session.add(LeavePolicy(
         leave_type_id=leave_type.id,
         accrual_rate=float(leave_type.default_days_per_year or 0),
+        annual_entitlement_days=float(leave_type.default_days_per_year or 0),
         max_carryover=0,
         notice_days_required=0,
     ))
@@ -665,7 +1075,25 @@ def update_leave_type(leave_type_id):
     leave_type.code = code
     leave_type.is_paid = bool(payload.get("is_paid", leave_type.is_paid))
     leave_type.requires_document = bool(payload.get("requires_document", leave_type.requires_document))
-    leave_type.default_days_per_year = float(payload.get("default_days_per_year") or leave_type.default_days_per_year or 0)
+    if "default_days_per_year" in payload:
+        try:
+            annual_days = Decimal(str(payload["default_days_per_year"]))
+            if not annual_days.is_finite() or annual_days < 0 or annual_days > 366:
+                raise InvalidOperation
+        except (InvalidOperation, TypeError, ValueError):
+            return _error("default_days_per_year must be between 0 and 366", "VALIDATION_ERROR", 422)
+        leave_type.default_days_per_year = annual_days
+    policy = LeavePolicy.query.filter_by(leave_type_id=leave_type.id).first()
+    if not policy:
+        policy = LeavePolicy(leave_type_id=leave_type.id)
+        db.session.add(policy)
+    policy.annual_entitlement_days = leave_type.default_days_per_year
+    policy.accrual_rate = leave_type.default_days_per_year
+    LeaveBalance.query.filter_by(
+        leave_type_id=leave_type.id,
+        year=datetime.utcnow().year,
+        is_manual_override=False,
+    ).update({"entitled_days": leave_type.default_days_per_year}, synchronize_session=False)
     db.session.commit()
     return jsonify({"data": {"id": leave_type.id, "name": leave_type.name, "code": leave_type.code}, "error": None, "message": "Leave type updated"})
 
@@ -754,10 +1182,55 @@ def admin_users():
         return _error("Only HR admin and super admin accounts can view system users", "FORBIDDEN", 403)
     actor_role = normalize_role(getattr(actor, "role", None))
     query = User.query if is_super_admin(actor) else User.query.filter(User.is_superuser.is_(False), User.role != "SUPER_ADMIN")
-    if actor_role == "MANAGER":
+    actor_assignment = get_active_assignment(actor.id)
+    if actor_assignment and actor_assignment.organizational_role in {
+        "department_manager", "team_leader"
+    }:
+        query = query.filter(User.department_id == actor_assignment.department_id)
+        if actor_assignment.organizational_role == "team_leader":
+            query = query.filter(
+                or_(User.manager_id == actor.id, User.id == actor.id)
+            )
+    elif actor_role == "MANAGER":
         query = query.filter(User.department_id == actor.department_id)
     users = query.order_by(User.created_at.desc()).all()
-    return jsonify({"data": [user.to_dict() for user in users], "error": None})
+    role_assignments = dict(
+        db.session.query(UserRole.user_id, Role.name)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(UserRole.user_id.in_([user.id for user in users]))
+        .all()
+    ) if users else {}
+    active_assignments = (
+        DepartmentAssignmentHistory.query.filter(
+            DepartmentAssignmentHistory.user_id.in_([user.id for user in users]),
+            DepartmentAssignmentHistory.ended_at.is_(None),
+        )
+        .order_by(DepartmentAssignmentHistory.started_at.desc())
+        .all()
+    ) if users else []
+    organization_by_user = {}
+    for assignment in active_assignments:
+        organization_by_user.setdefault(assignment.user_id, assignment)
+    return jsonify({
+        "data": [
+            {
+                **user.to_dict(),
+                "rbac_role": role_assignments.get(user.id),
+                "organizational_role": (
+                    organization_by_user[user.id].organizational_role
+                    if user.id in organization_by_user
+                    else None
+                ),
+                "department_role": (
+                    organization_by_user[user.id].role_name
+                    if user.id in organization_by_user
+                    else None
+                ),
+            }
+            for user in users
+        ],
+        "error": None,
+    })
 
 
 @auth_bp.post("/admin/users")
@@ -772,23 +1245,21 @@ def create_admin_user():
         return _error(reason or "You do not have permission to create that user", "FORBIDDEN", 403)
 
     full_name = (payload.get("full_name") or "").strip()
-    email = _normalize_email(payload.get("email"))
-    personal_email = _normalize_email(payload.get("personal_email"))
+    email = _normalize_email(payload.get("official_email") or payload.get("email"))
+    personal_email = email
     phone_number = normalize_ke_phone(payload.get("phone_number") or payload.get("contact_phone"))
     contact_phone = normalize_ke_phone(payload.get("contact_phone") or phone_number)
-    contact_email = personal_email
+    contact_email = email
     password = payload.get("password") or ""
     if role not in {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SYSTEM_ADMIN", "SUPER_ADMIN"}:
         return _error("Invalid role selected", "VALIDATION_ERROR", 422)
-    if not full_name or not email or not personal_email or not phone_number or len(password) < 8:
-        return _error("full_name, email, personal_email, phone_number, and a password of at least 8 characters are required", "VALIDATION_ERROR", 422)
+    if not full_name or not email or not phone_number or len(password) < 8:
+        return _error("full_name, official_email, phone_number, and a password of at least 8 characters are required", "VALIDATION_ERROR", 422)
     if not _valid_email(email):
         return _error("Enter a valid email address", "VALIDATION_ERROR", 422)
-    if not _valid_email(personal_email):
-        return _error("Enter a valid personal email address", "VALIDATION_ERROR", 422)
     if User.query.filter(
-        (db.func.lower(User.email).in_((email, personal_email)))
-        | (db.func.lower(User.personal_email).in_((email, personal_email)))
+        (db.func.lower(User.email) == email)
+        | (db.func.lower(User.personal_email) == email)
         | (User.phone_number == phone_number)
     ).first():
         return _error("A user with that email or phone number already exists", "CONFLICT", 409)
@@ -800,7 +1271,47 @@ def create_admin_user():
         except ValueError:
             return _error("hire_date must be a valid YYYY-MM-DD value", "VALIDATION_ERROR", 422)
 
-    department = _department_for(department_name)
+    try:
+        organizational_role = payload.get("organizational_role") or "field_agent"
+        department = _assignment_department_for(
+            department_name, organizational_role
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        return _error(str(exc), "VALIDATION_ERROR", 422)
+    if (
+        not isinstance(organizational_role, str)
+        or not may_assign_organizational_role(
+            actor, organizational_role, department.id if department else None
+        )
+    ):
+        db.session.rollback()
+        return _error(
+            "You are not authorized to assign that organizational role",
+            "FORBIDDEN",
+            403,
+        )
+    department_role = payload.get("department_role")
+    if department_role == "":
+        department_role = None
+    if department_role is not None and not isinstance(department_role, str):
+        db.session.rollback()
+        return _error(
+            "department_role must be a configured department role or null",
+            "VALIDATION_ERROR",
+            422,
+        )
+    if (
+        organizational_role in {"field_agent", "team_leader", "department_manager"}
+        and _canonical_department_name(department.name) is not None
+        and not department_role
+    ):
+        db.session.rollback()
+        return _error(
+            "Department employees and managers must have a role matching their department",
+            "VALIDATION_ERROR",
+            422,
+        )
     user = User(
         employee_id=f"EMP-{secrets.token_hex(4).upper()}",
         full_name=full_name,
@@ -812,8 +1323,8 @@ def create_admin_user():
         phone_number=phone_number,
         contact_phone=contact_phone,
         contact_email=contact_email,
-        department=department.name,
-        department_id=department.id,
+        department=department.name if department else "All",
+        department_id=department.id if department else None,
         address_line1=(payload.get("address_line1") or "").strip() or None,
         address_line2=(payload.get("address_line2") or "").strip() or None,
         city=(payload.get("city") or "").strip() or None,
@@ -825,11 +1336,53 @@ def create_admin_user():
         account_status="approved",
         must_change_password=True,
         is_superuser=bool(payload.get("is_superuser")) and is_super_admin(actor),
-        manager_id=actor.id if normalize_role(getattr(actor, "role", None)) == "MANAGER" and role == "EMPLOYEE" else None,
     )
     user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.add(user)
+        db.session.flush()
+        manager_id = validate_reporting_manager(
+            user,
+            department,
+            organizational_role,
+            payload.get("manager_id"),
+            actor,
+        )
+        actor_assignment = get_active_assignment(actor.id)
+        if (
+            actor_assignment
+            and actor_assignment.organizational_role == "team_leader"
+            and manager_id != actor.id
+        ):
+            db.session.rollback()
+            return _error(
+                "Team Leaders can only add employees who report directly to them",
+                "FORBIDDEN",
+                403,
+            )
+        transition_department(
+            user, department, department_role, organizational_role, actor
+        )
+        user.manager_id = manager_id
+        if payload.get("job_position_title"):
+            user.job_position_title = str(payload["job_position_title"]).strip()
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return _error(str(exc), "VALIDATION_ERROR", 422)
+    except IntegrityError as exc:
+        db.session.rollback()
+        message = assignment_capacity_conflict_message(
+            exc, department, organizational_role
+        )
+        if message:
+            return _error(message, "ORGANIZATION_CONFLICT", 409)
+        current_app.logger.exception("Unable to create user organizational assignment")
+        return _error("Unable to create the user and organizational assignment", "SERVER_ERROR", 500)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Unable to create user organizational assignment")
+        return _error("Unable to create the user and organizational assignment", "SERVER_ERROR", 500)
     return jsonify({"data": user.to_dict(), "error": None, "message": "User created successfully"})
 
 
@@ -841,18 +1394,81 @@ def delete_admin_user(user_id):
     protected = _protect_super_admin_target(actor, target)
     if protected:
         return protected
-    if not target or not _can_manage_target(actor, target):
+    if not target:
         return _error("User not found", "NOT_FOUND", 404)
     if target.id == actor.id:
         return _error("You cannot delete your own account", "CONFLICT", 409)
-    target.is_deleted = True
-    target.is_active = False
-    target.account_status = "deactivated"
-    target.deleted_at = datetime.utcnow()
-    target.deleted_by = actor.id
-    target.delete_reason = "Deleted by administrator"
-    db.session.commit()
-    return jsonify({"data": {"id": user_id}, "error": None, "message": "User deleted"})
+    if not is_super_admin(actor):
+        return _error(
+            "Only the super administrator can permanently delete users",
+            "FORBIDDEN",
+            403,
+        )
+    try:
+        _purge_user_references([user_id])
+        db.session.execute(User.__table__.delete().where(User.id == user_id))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Unable to permanently delete user %s", user_id)
+        return _error("Unable to permanently delete user", "SERVER_ERROR", 500)
+    return jsonify({
+        "data": {"id": user_id, "permanently_deleted": True},
+        "error": None,
+        "message": "User permanently deleted",
+    })
+
+
+@auth_bp.post("/admin/users/bulk-delete")
+@jwt_required()
+def bulk_delete_admin_users():
+    actor = db.session.get(User, int(get_jwt_identity()))
+    if not actor or not actor.is_currently_active() or actor.account_status != "approved":
+        return _error("Only an active administrator can bulk delete users", "FORBIDDEN", 403)
+    if not is_super_admin(actor):
+        return _error("Only the super administrator can permanently delete users", "FORBIDDEN", 403)
+
+    payload = request.get_json(silent=True) or {}
+    user_ids = payload.get("user_ids")
+    if not isinstance(user_ids, list) or not user_ids:
+        return _error("user_ids must be a non-empty list", "VALIDATION_ERROR", 422)
+
+    ids = []
+    for user_id in user_ids:
+        try:
+            value = int(user_id)
+        except (TypeError, ValueError):
+            return _error("Each user_id must be an integer", "VALIDATION_ERROR", 422)
+        if value == actor.id:
+            return _error("You cannot delete your own account", "CONFLICT", 409)
+        ids.append(value)
+
+    targets = User.query.filter(User.id.in_(ids)).all()
+    if not targets:
+        return _error("No users were found for deletion", "NOT_FOUND", 404)
+
+    deleted_ids = []
+    for target in targets:
+        protected = _protect_super_admin_target(actor, target)
+        if protected:
+            return protected
+        if not _can_manage_target(actor, target):
+            return _error(f"You cannot delete user {target.id}", "FORBIDDEN", 403)
+        deleted_ids.append(target.id)
+
+    try:
+        _purge_user_references(deleted_ids)
+        db.session.execute(User.__table__.delete().where(User.id.in_(deleted_ids)))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Unable to permanently delete selected users")
+        return _error("Unable to permanently delete selected users", "SERVER_ERROR", 500)
+    return jsonify({
+        "data": {"deleted_ids": deleted_ids, "permanently_deleted": len(deleted_ids)},
+        "error": None,
+        "message": f"Permanently deleted {len(deleted_ids)} user(s)",
+    })
 
 
 @auth_bp.patch("/admin/users/<int:user_id>")
@@ -866,6 +1482,100 @@ def update_admin_user(user_id):
     if not target or not _can_manage_target(actor, target):
         return _error("User not found", "NOT_FOUND", 404)
     payload = request.get_json(silent=True) or {}
+    if "official_email" in payload and "email" not in payload:
+        payload["email"] = payload["official_email"]
+    requested_department = payload.get("department")
+    assignment_fields = {
+        "organizational_role",
+        "department_role",
+        "manager_id",
+    }
+    updates_assignment = bool(assignment_fields.intersection(payload))
+    department_changed = (
+        isinstance(requested_department, str)
+        and requested_department.strip().casefold()
+        != (target.department or "").strip().casefold()
+    )
+    manager_changed = (
+        "manager_id" in payload
+        and str(payload.get("manager_id") or "") != str(target.manager_id or "")
+    )
+    if (department_changed or manager_changed) and not updates_assignment:
+        return _error(
+            "Department and reporting-line changes require an organizational assignment",
+            "ORGANIZATION_TRANSFER_REQUIRED",
+            409,
+        )
+    assignment = get_active_assignment(target.id)
+    if updates_assignment:
+        if not assignment_fields.issubset(payload) or not isinstance(requested_department, str):
+            return _error(
+                "organizational_role, department_role, manager_id, and department are required to update an organizational assignment",
+                "VALIDATION_ERROR",
+                422,
+            )
+        organizational_role = payload.get("organizational_role")
+        department_role = payload.get("department_role")
+        if department_role == "":
+            department_role = None
+        if department_role is not None and not isinstance(department_role, str):
+            return _error(
+                "department_role must be a configured department role or null",
+                "VALIDATION_ERROR",
+                422,
+            )
+        if (
+            not isinstance(organizational_role, str)
+            or organizational_role not in {
+                "general_manager",
+                "department_manager",
+                "team_leader",
+                "field_agent",
+            }
+        ):
+            return _error("Invalid organizational role selected", "VALIDATION_ERROR", 422)
+        if (
+            organizational_role in {"field_agent", "team_leader", "department_manager"}
+            and _canonical_department_name(requested_department) is not None
+            and not department_role
+        ):
+            return _error(
+                "Department employees and managers must have a role matching their department",
+                "VALIDATION_ERROR",
+                422,
+            )
+        try:
+            department = _assignment_department_for(
+                requested_department, organizational_role
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return _error(str(exc), "VALIDATION_ERROR", 422)
+        assignment_changed = (
+            not assignment
+            or assignment.department_id != (department.id if department else None)
+            or assignment.organizational_role != organizational_role
+            or assignment.role_name != department_role
+        )
+        if assignment_changed or manager_changed:
+            if not may_manage_transfers(actor, target):
+                db.session.rollback()
+                return _error(
+                    "You are not authorized to change this employee's organizational assignment",
+                    "FORBIDDEN",
+                    403,
+                )
+        if assignment_changed and not may_assign_organizational_role(
+            actor,
+            organizational_role,
+            department.id if department else None,
+        ):
+            db.session.rollback()
+            return _error(
+                "You are not authorized to assign that organizational role",
+                "FORBIDDEN",
+                403,
+            )
     editable_fields = (
         "full_name",
         "employee_name",
@@ -876,7 +1586,6 @@ def update_admin_user(user_id):
         "phone_number",
         "contact_phone",
         "contact_email",
-        "department",
         "address_line1",
         "address_line2",
         "city",
@@ -909,11 +1618,6 @@ def update_admin_user(user_id):
             value = str(value).strip()
         if not value and field not in {"address_line1", "address_line2", "city", "country", "postal_code"}:
             return _error(f"{field} is required", "VALIDATION_ERROR", 422)
-        if field == "department":
-            department = _department_for(value or "General")
-            target.department = department.name
-            target.department_id = department.id
-            continue
         if field == "full_name":
             target.full_name = value
             target.employee_name = value
@@ -927,6 +1631,8 @@ def update_admin_user(user_id):
             if duplicate:
                 return _error("A user with that email already exists", "CONFLICT", 409)
             target.email = value
+            target.personal_email = value
+            target.contact_email = value
             continue
         if field in {"personal_email", "contact_email"}:
             duplicate = User.query.filter(
@@ -935,7 +1641,8 @@ def update_admin_user(user_id):
                 | (db.func.lower(User.personal_email) == value),
             ).first()
             if duplicate:
-                return _error("A user with that personal email already exists", "CONFLICT", 409)
+                return _error("A user with that official email already exists", "CONFLICT", 409)
+            target.email = value
             target.personal_email = value
             target.contact_email = value
             continue
@@ -960,7 +1667,44 @@ def update_admin_user(user_id):
             target.is_superuser = bool(payload["is_superuser"])
         if "manager_id" in payload:
             target.manager_id = payload["manager_id"] or None
-    db.session.commit()
+    if updates_assignment and (assignment_changed or manager_changed):
+        try:
+            manager_id = validate_reporting_manager(
+                target,
+                department,
+                organizational_role,
+                payload.get("manager_id"),
+                actor,
+            )
+            if assignment_changed:
+                transition_department(
+                    target,
+                    department,
+                    department_role,
+                    organizational_role,
+                    actor,
+                )
+            target.manager_id = manager_id
+        except ValueError as exc:
+            db.session.rollback()
+            return _error(str(exc), "VALIDATION_ERROR", 422)
+    if "status" in payload:
+        status_error = _apply_admin_user_status(actor, target, payload["status"])
+        if status_error:
+            return status_error
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        message = assignment_capacity_conflict_message(
+            exc,
+            department if updates_assignment else None,
+            payload.get("organizational_role") if updates_assignment else None,
+        )
+        if message:
+            return _error(message, "ORGANIZATION_CONFLICT", 409)
+        current_app.logger.exception("Unable to save admin user changes")
+        return _error("Unable to save user changes", "SERVER_ERROR", 500)
     return jsonify({"data": target.to_dict(), "error": None, "message": "User updated successfully"})
 
 
@@ -974,45 +1718,13 @@ def update_admin_user_status(user_id):
         return protected
     if not target or not _can_manage_target(actor, target):
         return _error("User not found", "NOT_FOUND", 404)
-    if target.id == actor.id:
-        return _error("You cannot change your own account status", "CONFLICT", 409)
-    status = (request.get_json(silent=True) or {}).get("status", "").strip().lower()
-    if status not in {"pending", "active", "deactivated", "archived"}:
-        return _error("status must be pending, active, deactivated, or archived", "VALIDATION_ERROR", 422)
-    if status == "pending":
-        target.is_active = True
-        target.is_archived = False
-        target.account_status = "pending"
-        target.approved_by = None
-        target.approved_at = None
-        target.deactivated_at = None
-        target.deactivated_by = None
-        target.archived_at = None
-        target.archived_by = None
-    elif status == "active":
-        was_pending = target.account_status == "pending"
-        target.is_active = True
-        target.is_archived = False
-        target.account_status = "approved"
-        if was_pending:
-            target.approved_by = actor.id
-            target.approved_at = datetime.utcnow()
-        target.deactivated_at = None
-        target.deactivated_by = None
-        target.archived_at = None
-        target.archived_by = None
-    else:
-        target.is_active = False
-        target.is_archived = status == "archived"
-        target.account_status = "deactivated"
-        target.deactivated_at = datetime.utcnow()
-        target.deactivated_by = actor.id
-        if status == "archived":
-            target.archived_at = datetime.utcnow()
-            target.archived_by = actor.id
-        else:
-            target.archived_at = None
-            target.archived_by = None
+    payload = request.get_json(silent=True) or {}
+    status = payload.get("status")
+    if isinstance(status, str):
+        status = status.strip().lower()
+    status_error = _apply_admin_user_status(actor, target, status)
+    if status_error:
+        return status_error
     db.session.commit()
     return jsonify({"data": target.to_dict(), "error": None, "message": f"User {status}"})
 
@@ -1041,6 +1753,7 @@ def update_admin_user_role(user_id):
     else:
         target.is_superuser = bool(payload.get("is_superuser"))
     target.role = role
+    db.session.flush()
     db.session.commit()
     return jsonify({"data": target.to_dict(), "error": None, "message": "Role updated successfully"})
 
@@ -1093,52 +1806,34 @@ def admin_system_health():
 
 
 @auth_bp.post("/request-password-reset")
+@limiter.limit("3 per 10 minutes", key_func=_otp_account_rate_limit_key)
+@limiter.limit("3 per 10 minutes", key_func=get_remote_address)
 def request_password_reset():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    email = _normalize_email(payload.get("email"))
-    if not phone_number and not email:
-        return _error("Provide your registered email or phone number", "VALIDATION_ERROR", 422)
-    user = (
-        User.query.filter_by(phone_number=phone_number).first()
-        if phone_number
-        else _account_for_email(email)
-    )
-    if user and email and email not in {
-        _normalize_email(user.email),
-        _normalize_email(user.personal_email),
-    }:
-        return _error("Email does not match the registered account", "VALIDATION_ERROR", 422)
-    if not user or not user.is_active or user.account_status in ("banned", "deactivated"):
-        return jsonify({"message": "If the account is eligible, a verification code was sent to its registered email."})
-    if not _resend_allowed(user, "password_reset"):
-        return _error(
-            f"Please wait {OTP_RESEND_DELAY_SECONDS} seconds before requesting another OTP",
-            "TOO_MANY_REQUESTS",
-            429,
-        )
+    if not phone_number:
+        return jsonify({
+            "message": _password_reset_message(sms_sent=False, phone_number=phone_number)
+        })
+    user = User.query.filter_by(phone_number=phone_number).first()
+    if not user or not user.is_currently_active() or user.account_status in ("banned", "deactivated"):
+        return jsonify({
+            "message": _password_reset_message(sms_sent=False, phone_number=phone_number)
+        })
+    sms_sent = False
     try:
-        _, email_error = _create_otp(user, "password_reset")
+        challenge, sms_sent = _create_otp(user, "reset")
         db.session.commit()
-    except EmailDeliveryConfigurationError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
-    except RuntimeError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Unable to create or deliver password-reset OTP")
-        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
+        current_app.logger.exception("Unable to create password-reset OTP")
+        return _error(
+            "Unable to create reset code. Please try again later.",
+            "OTP_CREATION_FAILED",
+            502,
+        )
     return jsonify({
-        "verification_required": True,
-        "email_sent": email_error is None,
-        "message": (
-            "A password reset code was sent to your registered work and personal email addresses."
-            if email_error is None
-            else "The OTP is stored in the development database and shown in the server console. "
-            "Email delivery failed; configure SMTP before relying on email OTPs."
-        ),
+        "message": _password_reset_message(sms_sent=sms_sent, phone_number=phone_number)
     })
 
 
@@ -1146,25 +1841,16 @@ def request_password_reset():
 def reset_password():
     payload = request.get_json(silent=True) or {}
     phone_number = normalize_ke_phone(payload.get("phone_number"))
-    email = _normalize_email(payload.get("email"))
     new_password = payload.get("new_password")
-    if not email or not payload.get("otp") or not new_password:
-        return _error("email, otp, and new_password are required")
+    if not phone_number or not payload.get("otp") or not new_password:
+        return _error("phone_number, otp, and new_password are required")
     if not isinstance(new_password, str) or len(new_password) < 8:
         return _error("new_password must be at least 8 characters")
-    if phone_number:
-        user = User.query.filter_by(phone_number=phone_number).first()
-        if not user or email not in {
-            _normalize_email(user.email),
-            _normalize_email(user.personal_email),
-        }:
-            return _error("Email does not match the registered account", "UNAUTHORIZED", 401)
-    else:
-        user = _account_for_email(email)
+    user = User.query.filter_by(phone_number=phone_number).first()
     if not user:
         return _error("Invalid OTP challenge", "UNAUTHORIZED", 401)
     try:
-        challenge, error = _verify_otp(user.phone_number, payload["otp"], "password_reset", email)
+        challenge, error = _verify_otp(user.phone_number, payload["otp"], "reset")
         if error:
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
@@ -1187,35 +1873,28 @@ def request_phone_recovery():
         return _error("Enter a valid registered email address", "VALIDATION_ERROR", 422)
     user = _account_for_email(email)
     if not user or not user.is_active or user.account_status in ("banned", "deactivated"):
-        return jsonify({"message": "If the account is eligible, a recovery code was sent to its registered email."})
+        return jsonify({"message": _otp_generated_message("recovery", sms_sent=False)})
     if not _resend_allowed(user, "account_recovery"):
         return _error(
             f"Please wait {OTP_RESEND_DELAY_SECONDS} seconds before requesting another OTP",
             "TOO_MANY_REQUESTS",
             429,
         )
+    sms_sent = False
     try:
-        _, email_error = _create_otp(user, "account_recovery")
+        challenge, sms_sent = _create_otp(user, "account_recovery")
         db.session.commit()
-    except EmailDeliveryConfigurationError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_NOT_CONFIGURED", 503)
-    except RuntimeError as exc:
-        db.session.rollback()
-        return _error(str(exc), "EMAIL_DELIVERY_FAILED", 503)
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Unable to create or deliver account-recovery OTP")
-        return _error("Unable to deliver verification email", "EMAIL_DELIVERY_FAILED", 503)
+        current_app.logger.exception("Unable to create account-recovery OTP")
+        return _error(
+            "Unable to create recovery code. Please try again later.",
+            "OTP_CREATION_FAILED",
+            502,
+        )
     return jsonify({
         "verification_required": True,
-        "email_sent": email_error is None,
-        "message": (
-            "A recovery code was sent to your registered work and personal email addresses."
-            if email_error is None
-            else "The OTP is stored in the development database and shown in the server console. "
-            "Email delivery failed; configure SMTP before relying on email OTPs."
-        ),
+        "message": _otp_generated_message("recovery", sms_sent=sms_sent),
     })
 
 
@@ -1258,12 +1937,38 @@ def approve_account(user_id):
     if not user:
         return _error("User not found", "NOT_FOUND", 404)
     if actor_role == "MANAGER":
-        if normalize_role(getattr(user, "role", None)) != "EMPLOYEE" or user.department_id != actor.department_id:
-            return _error("Managers can only approve employees in their department", "FORBIDDEN", 403)
-    user.account_status = "approved"
-    user.is_active = True
-    user.approved_by = actor.id
-    user.approved_at = datetime.utcnow()
+        actor_assignment = get_active_assignment(actor.id)
+        target_assignment = get_active_assignment(user.id)
+        if not actor_assignment or not target_assignment:
+            return _error(
+                "An active organizational assignment is required to approve accounts",
+                "FORBIDDEN",
+                403,
+            )
+        permitted = (
+            actor_assignment.organizational_role == "general_manager"
+            or (
+                actor_assignment.organizational_role == "department_manager"
+                and actor_assignment.department_id == user.department_id
+                and target_assignment.organizational_role
+                in {"team_leader", "field_agent"}
+            )
+            or (
+                actor_assignment.organizational_role == "team_leader"
+                and actor_assignment.department_id == user.department_id
+                and target_assignment.organizational_role == "field_agent"
+                and user.manager_id == actor.id
+            )
+        )
+        if not permitted:
+            return _error(
+                "You can only approve accounts within your reporting authority",
+                "FORBIDDEN",
+                403,
+            )
+    status_error = _apply_admin_user_status(actor, user, "active")
+    if status_error:
+        return status_error
     db.session.commit()
     return jsonify({"message": "Account approved", "user": user.to_dict()})
 
@@ -1317,7 +2022,7 @@ def refresh():
     if token in _revoked_refresh_tokens:
         return _error("Refresh token has been revoked", "UNAUTHORIZED", 401)
     user = db.session.get(User, int(get_jwt_identity()))
-    if not user or not user.is_active or user.account_status != "approved":
+    if not user or not user.is_currently_active() or user.account_status != "approved":
         return _error("User is inactive", "UNAUTHORIZED", 401)
     return jsonify({"access_token": create_access_token(identity=str(user.id), additional_claims=_claims(user))})
 
@@ -1335,7 +2040,7 @@ def current_user():
     user = db.session.get(User, int(get_jwt_identity()))
     if not user:
         return _error("User not found", "NOT_FOUND", 404)
-    response = jsonify({"user": user.to_dict()})
+    response = jsonify({"user": _user_response_data(user)})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Vary"] = "Authorization"
@@ -1375,6 +2080,7 @@ def update_current_user():
             ).first()
             if duplicate:
                 return _error("A user with that personal email already exists", "CONFLICT", 409)
+            user.email = value
             user.personal_email = value
             user.contact_email = value
             continue

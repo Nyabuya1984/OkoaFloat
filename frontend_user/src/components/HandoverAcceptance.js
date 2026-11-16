@@ -5,21 +5,26 @@ const ACKNOWLEDGMENT_TEXT =
   'I have been hereby briefed on work to be undertaken and hereby agree to take responsibility of work to be executed.';
 
 export default function HandoverAcceptance({ requestId, onComplete }) {
-  const [signatureName, setSignatureName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [signature, setSignature] = useState('');
   const [signatureDate, setSignatureDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const accept = async () => {
-    if (!signatureName.trim() || !signatureDate) {
-      setError('Enter your full name and signature date.');
+    if (!fullName.trim() || !signature.trim() || !signatureDate) {
+      setError('Enter your full name, signature, and date.');
+      return;
+    }
+    if (fullName.trim() !== signature.trim()) {
+      setError('Your signature must match your full name.');
       return;
     }
     setBusy(true);
     setError('');
     try {
-      await acceptHandover(requestId, ACKNOWLEDGMENT_TEXT, signatureName.trim(), signatureDate);
+      await acceptHandover(requestId, ACKNOWLEDGMENT_TEXT, fullName.trim(), signature.trim(), signatureDate);
       onComplete();
     } catch (requestError) {
       setError(requestError.message);
@@ -50,8 +55,12 @@ export default function HandoverAcceptance({ requestId, onComplete }) {
       <p className="handover-acceptance-title">Delegate acknowledgment</p>
       <p>{ACKNOWLEDGMENT_TEXT}</p>
       <label>
-        Full name
-        <input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} />
+        Full Names
+        <input value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+      </label>
+      <label>
+        Signature
+        <input value={signature} onChange={(event) => setSignature(event.target.value)} required />
       </label>
       <label>
         Date

@@ -8,9 +8,8 @@ REGISTRATION_BASE = {
     "employee_name": "Jane Wanjiku",
     "job_position_title": "Operations Officer",
     "employer": "Okoa Float Ltd",
-    "department": "Operations",
-    "email": "jane@example.com",
-    "personal_email": "jane.personal@example.com",
+    "department": "Sales & Marketing",
+    "official_email": "jane@example.com",
     "phone_number": "+254711222333",
     "password": "Password123!",
 }
@@ -18,7 +17,7 @@ REGISTRATION_BASE = {
 
 @pytest.mark.parametrize(
     "field",
-    ["employee_name", "job_position_title", "employer", "department", "personal_email"],
+    ["employee_name", "job_position_title", "employer", "department", "official_email"],
 )
 def test_registration_requires_work_identity_fields(client, field):
     payload = {**REGISTRATION_BASE, field: ""}
@@ -38,23 +37,32 @@ def test_registration_creates_user_and_reuses_department(client, session):
     second_payload = {
         **REGISTRATION_BASE,
         "employee_name": "John Otieno",
-        "email": "john@example.com",
-        "personal_email": "john.personal@example.com",
+        "official_email": "john@example.com",
         "phone_number": "+254722333444",
-        "department": " operations ",
+        "department": " sales and marketing ",
     }
     second = client.post("/api/auth/register", json=second_payload)
     assert second.status_code == 201, second.get_json()
 
     first_user = session.query(User).filter_by(email="jane@example.com").one()
     second_user = session.query(User).filter_by(email="john@example.com").one()
-    departments = session.query(Department).filter(Department.name == "Operations").all()
+    departments = session.query(Department).filter(Department.name == "Sales & Marketing").all()
 
     assert first_user.employee_name == "Jane Wanjiku"
     assert first_user.full_name == "Jane Wanjiku"
     assert first_user.department_id == second_user.department_id
-    assert first_user.department == "Operations"
+    assert first_user.department == "Sales & Marketing"
     assert len(departments) == 1
+
+
+def test_registration_rejects_departments_outside_the_three_supported_departments(client):
+    response = client.post(
+        "/api/auth/register",
+        json={**REGISTRATION_BASE, "department": "Operations"},
+    )
+
+    assert response.status_code == 422
+    assert response.get_json()["error"]["fields"]["department"]
 
 
 def test_registration_deduplicates_phone_formats(client, session):
@@ -64,8 +72,7 @@ def test_registration_deduplicates_phone_formats(client, session):
     duplicate = {
         **REGISTRATION_BASE,
         "employee_name": "Duplicate Employee",
-        "email": "duplicate@example.com",
-        "personal_email": "duplicate.personal@example.com",
+        "official_email": "duplicate@example.com",
         "phone_number": "+254 711 222 333",
     }
     second = client.post("/api/auth/register", json=duplicate)
