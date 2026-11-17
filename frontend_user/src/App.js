@@ -3,7 +3,18 @@ import { Eye, EyeOff, Key } from 'react-feather';
 import './App.css';
 import AuthenticatedRoutes from './components/AuthenticatedRoutes';
 import { BrowserRouter } from 'react-router-dom';
-import { clearAuthSession, getAuthToken, getRefreshToken, saveAuthSession, saveDashboardRole } from './services/authStorage';
+import {
+  beginAdminUserAccess,
+  clearAuthSession,
+  endAdminUserAccess,
+  getAuthToken,
+  getRefreshToken,
+  hasAdminUserAccessSession,
+  refreshAuthToken,
+  saveAuthSession,
+  saveDashboardRole,
+} from './services/authStorage';
+import { isRolePreviewEnabled, normalizeRole, ROLE_PREVIEW_OPTIONS } from './navigation';
 
 const API_ORIGIN = process.env.REACT_APP_API_URL || '';
 const AUTH_API_BASE = `${API_ORIGIN}/api/auth`;
@@ -93,6 +104,42 @@ function App() {
   const [resetResendCountdown, setResetResendCountdown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
+  const [rolePreview, setRolePreview] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = window.sessionStorage.getItem('okoa_role_preview_role');
+    return stored && ROLE_PREVIEW_OPTIONS.some((option) => option.value === stored) ? stored : null;
+  });
+
+  const canPreviewRole = Boolean(currentUser && isRolePreviewEnabled(currentUser, typeof window !== 'undefined' ? window.location.hostname : ''));
+
+  const clearRolePreview = () => {
+    setRolePreview(null);
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem('okoa_role_preview_role');
+  };
+
+  const applyRolePreview = (nextRole) => {
+    if (!currentUser || !isRolePreviewEnabled(currentUser, typeof window !== 'undefined' ? window.location.hostname : '')) return;
+
+    const normalizedRole = normalizeRole(nextRole);
+    const allowedRole = ROLE_PREVIEW_OPTIONS.some((option) => normalizeRole(option.value) === normalizedRole);
+    if (!allowedRole) {
+      clearRolePreview();
+      return;
+    }
+
+    setRolePreview(normalizedRole);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('okoa_role_preview_role', normalizedRole);
+      const history = JSON.parse(window.sessionStorage.getItem('okoa_role_preview_history') || '[]');
+      history.push({
+        timestamp: new Date().toISOString(),
+        originalRole: currentUser.role,
+        previewRole: normalizedRole,
+        user: currentUser.name,
+      });
+      window.sessionStorage.setItem('okoa_role_preview_history', JSON.stringify(history.slice(-20)));
+    }
+  };
 
   useEffect(() => {
     if (
@@ -128,20 +175,34 @@ function App() {
       return;
     }
 
-    fetch(`${AUTH_API_BASE}/me`, {
-      cache: 'no-store',
-      headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
-    })
-      .then(async (response) => {
-        const data = await readJsonResponse(response, 'Your session could not be restored.');
-        if (!response.ok || !data.user) throw new Error('Session expired');
-        const user = normalizeUser(data.user);
-        saveDashboardRole(user.role);
-        setCurrentUser(user);
-      })
-      .catch(() => {
-        clearAuthSession();
-      })
+    const requestCurrentUser = async () => {
+      let response = await fetch(`${AUTH_API_BASE}/me`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${getAuthToken()}`, 'Cache-Control': 'no-cache' },
+      });
+      let data = await readJsonResponse(response, 'Your session could not be restored.');
+      if ((!response.ok || !data.user) && hasAdminUserAccessSession()) {
+        endAdminUserAccess();
+        response = await fetch(`${AUTH_API_BASE}/me`, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${getAuthToken()}`, 'Cache-Control': 'no-cache' },
+        });
+        if (response.status === 401 && await refreshAuthToken()) {
+          response = await fetch(`${AUTH_API_BASE}/me`, {
+            cache: 'no-store',
+            headers: { Authorization: `Bearer ${getAuthToken()}`, 'Cache-Control': 'no-cache' },
+          });
+        }
+        data = await readJsonResponse(response, 'Your session could not be restored.');
+      }
+      if (!response.ok || !data.user) throw new Error('Session expired');
+      const user = normalizeUser(data.user);
+      saveDashboardRole(user.role);
+      setCurrentUser(user);
+    };
+
+    requestCurrentUser()
+      .catch(() => clearAuthSession())
       .finally(() => {
         setAuthRestoring(false);
       });
@@ -230,7 +291,7 @@ function App() {
       const data = await readJsonResponse(response, 'Registration failed. The server returned an unexpected response.');
       if (!response.ok) throw new Error(apiError(data, 'Registration failed.'));
       setRegistrationOtpSent(true);
-      setRegistrationResendCountdown(60);
+      setRegistrationResendCountdown(data.sms_sent ? 60 : 5);
       setRegistrationOtpEmail('');
       showMessage(data.sms_sent === false ? 'error' : 'success', data.message || 'Verification code request completed.');
     } catch (error) {
@@ -397,6 +458,7 @@ function App() {
     } finally {
       clearAuthSession();
       setCurrentUser(null);
+      clearRolePreview();
       setLoginOtpSent(false);
       setLoginOtp('');
       setAuthView('login');
@@ -404,15 +466,73 @@ function App() {
     }
   };
 
+  const startAdminUserAccess = async (userId) => {
+    const response = await fetch(`${AUTH_API_BASE}/admin/users/${userId}/access`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+    });
+    const payload = await readJsonResponse(response, 'The server responded unexpectedly.');
+    if (!response.ok || !payload.data?.access_token) {
+      throw new Error(apiError(payload, 'Unable to access this user account.'));
+    }
+    beginAdminUserAccess(payload.data);
+    clearRolePreview();
+    setCurrentUser({
+      ...normalizeUser(payload.data.user),
+      acting_as: payload.data.acting_as,
+    });
+  };
+
+  const stopAdminUserAccess = async () => {
+    try {
+      await fetch(`${AUTH_API_BASE}/admin/users/access/stop`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      });
+    } finally {
+      if (!endAdminUserAccess()) {
+        clearAuthSession();
+        setCurrentUser(null);
+        return;
+      }
+      let response = await fetch(`${AUTH_API_BASE}/me`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${getAuthToken()}`, 'Cache-Control': 'no-cache' },
+      });
+      if (response.status === 401 && await refreshAuthToken()) {
+        response = await fetch(`${AUTH_API_BASE}/me`, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${getAuthToken()}`, 'Cache-Control': 'no-cache' },
+        });
+      }
+      const payload = await readJsonResponse(response, 'The admin session could not be restored.');
+      if (!response.ok || !payload.user) {
+        clearAuthSession();
+        setCurrentUser(null);
+        return;
+      }
+      setCurrentUser(normalizeUser(payload.user));
+    }
+  };
+
+  const effectiveCurrentUser = currentUser ? {
+    ...currentUser,
+    role: rolePreview || currentUser.role,
+    ...(rolePreview ? { is_superuser: false, isSuperUser: false } : {}),
+  } : null;
+  const canAccessUserAccounts = Boolean(
+    currentUser?.is_superuser === true || normalizeRole(currentUser?.role) === 'super_admin'
+  );
+
   if (currentUser) {
     return (
       <BrowserRouter>
         <>
-        <AuthenticatedRoutes currentUser={currentUser} onUserUpdated={(user) => {
+        <AuthenticatedRoutes currentUser={effectiveCurrentUser} canAccessUserAccounts={canAccessUserAccounts} onStartUserAccess={startAdminUserAccess} onStopUserAccess={stopAdminUserAccess} onUserUpdated={(user) => {
           const normalizedUser = normalizeUser(user);
           saveDashboardRole(normalizedUser.role);
           setCurrentUser(normalizedUser);
-        }} handleLogout={handleLogout} />
+        }} handleLogout={handleLogout} rolePreview={rolePreview} canPreviewRole={canPreviewRole} onRolePreviewChange={applyRolePreview} onClearRolePreview={clearRolePreview} />
         </>
       </BrowserRouter>
     );
@@ -431,9 +551,9 @@ function App() {
     <div className="activation-container auth-page">
       <div className={`auth-card ${isRegistration ? 'registration-auth-card' : 'login-card'}`}>
         <aside className="auth-visual-panel">
-          <p className="auth-visual-kicker">LEAVE, MADE SIMPLE</p>
+          <p className="auth-visual-kicker">OPERATIONS, MADE SIMPLE</p>
           <h2>More time for the work that matters.</h2>
-          <p>Request leave, track balances, and stay aligned with your team from one calm workspace.</p>
+          <p>Streamline sales, support customers, track collections, manage accounts, and stay aligned with your team in one calm workspace.</p>
           <div className="auth-visual-rule" />
           <span>Secure employee access</span>
         </aside>
@@ -450,6 +570,10 @@ function App() {
           {isRegistration ? (
             registrationOtpSent ? (
               <>
+                <div className="auth-otp-notice" role="status">
+                  <span className="auth-otp-notice-icon" aria-hidden="true"><Key size={19} /></span>
+                  <div><p>If the code doesn't arrive, confirm your phone number and resend after the countdown.</p></div>
+                </div>
                 <EmailField value={registrationOtpEmail} onChange={setRegistrationOtpEmail} label="Confirm official email" />
                 <OtpForm value={registrationOtp} onChange={setRegistrationOtp} onSubmit={verifyRegistration} onResend={resendRegistrationOtp} resendCountdown={registrationResendCountdown} busy={busy} label="Enter 6-digit verification code" />
               </>

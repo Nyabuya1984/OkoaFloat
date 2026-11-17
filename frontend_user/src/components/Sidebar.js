@@ -13,7 +13,6 @@ const leavePages = [
   'my-leave',
   'history',
   'delegations',
-  'chat',
   'approvals',
   'calendar',
   'leave-policies',
@@ -57,14 +56,6 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, currentUser, 
   const organizationalRole = assignment.organizational_role || '';
   const isDepartmentManager = organizationalRole === 'department_manager';
   const isTeamLeader = organizationalRole === 'team_leader';
-  const departmentRole = String(assignment.department_role || currentUser?.department_role || '').toLowerCase();
-  const departmentName = String(
-    assignment.department_name
-    || assignment.department
-    || currentUser?.department_name
-    || currentUser?.department
-    || '',
-  ).toLowerCase();
   const sections = accessibleNavSections(
     currentUser?.role || 'employee',
     isSuperAdmin,
@@ -129,37 +120,20 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, currentUser, 
   }, [canConfigureDepartmentPages, currentUser?.id, isGeneralManager, isSuperAdmin]);
 
   const getBadge = (badgeType) => {
-    if (badgeType === 'unread') return currentUser?.unread_chat_count;
     if (badgeType === 'pendingApprovals') return currentUser?.pending_approval_count;
     return null;
   };
 
-  const departmentPage = departmentRole.includes('sales') || /sales|marketing/.test(departmentName)
-    ? 'sales-reports'
-    : departmentRole.includes('debt') || /debt|collection/.test(departmentName)
-      ? 'debt-collection'
-      : departmentRole.includes('customer') || /customer|care/.test(departmentName)
-        ? 'customer-care-logs'
-        : null;
-  const isSalesDepartment = departmentRole.includes('sales') || /sales|marketing/.test(departmentName);
-
   let menuGroups;
-  if (isSuperAdmin || isGeneralManager || isDepartmentManager || isTeamLeader) {
-    const leaveItems = [
-      ...leavePages.filter((page) => page !== 'chat' || (!isSuperAdmin && !isGeneralManager)),
-    ].map(pageItem).filter(Boolean);
-    const departmentGroups = (isSuperAdmin || isGeneralManager)
-      ? departments.map((department) => {
-        const configuredPages = canConfigureDepartmentPages
-          && Array.isArray(department.pages)
+  const leaveItems = leavePages.map(pageItem).filter(Boolean);
+  if (isGeneralManager) {
+    const departmentGroups = departments.map((department) => {
+        const configuredPages = Array.isArray(department.pages) && department.pages.length
           ? department.pages
           : getDepartmentPages(department.name);
-        const pages = Array.from(new Set([
-          ...getDepartmentPages(department.name),
-          ...configuredPages,
-        ]));
-        const items = pages.map(pageItem).filter(Boolean).map((item) => (
-          isSuperAdmin && item.page === 'sales-reports'
+        const pages = configuredPages;
+        const items = pages.map((page) => dashboardRouteItems.find((item) => item.page === page)).filter(Boolean).map((item) => (
+          (isSuperAdmin || isGeneralManager) && item.page === 'sales-reports'
             ? { ...item, label: 'Sales & Marketing Performance' }
             : item
         ));
@@ -169,22 +143,14 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, currentUser, 
           items,
           emptyMessage: 'No department pages are configured.',
         };
-      })
-      : [{
-        title: assignment.department_name || assignment.department || currentUser?.department_name || currentUser?.department || 'My Department',
-        items: [departmentPage, ...(isSalesDepartment ? ['organization-live'] : []), 'employees'].map(pageItem).filter(Boolean),
-      }];
+      });
 
     menuGroups = [
       { title: 'Leave', items: leaveItems },
       ...departmentGroups,
       {
         title: 'Users',
-        items: isSuperAdmin
-          ? ['dashboard', 'admin', 'employees', 'hr-module', 'hr-verification', 'organization-history', 'department-transfers', 'chat'].map(pageItem).filter(Boolean)
-          : isGeneralManager
-            ? ['dashboard', 'employees', 'organization-history', 'department-transfers', 'chat'].map(pageItem).filter(Boolean)
-            : [],
+        items: ['dashboard', 'employees', 'organization-history', 'department-transfers'].map(pageItem).filter(Boolean),
       },
       ...(isSuperAdmin ? [{
         title: 'Settings',
@@ -192,13 +158,57 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, currentUser, 
       }] : []),
     ].filter((group) => group.items.length || group.emptyMessage);
   } else {
+    const assignedDepartment = assignment.department_name
+      || assignment.department
+      || currentUser?.department_name
+      || currentUser?.department
+      || '';
+    const configuredDepartment = isSuperAdmin
+      ? departments.find((department) => department.name.toLowerCase() === String(assignedDepartment).toLowerCase())
+      : null;
+    const configuredPages = currentUser?.department_pages
+      ?? assignment.department_pages
+      ?? (configuredDepartment && Array.isArray(configuredDepartment.pages) && configuredDepartment.pages.length
+        ? configuredDepartment.pages
+        : getDepartmentPages(assignedDepartment));
+    const departmentPages = [
+      ...configuredPages,
+      ...(isDepartmentManager || isTeamLeader ? ['employees'] : []),
+    ];
+    const hasConfiguredPages = Array.isArray(currentUser?.department_pages)
+      || Array.isArray(assignment.department_pages)
+      || (Array.isArray(configuredDepartment?.pages) && configuredDepartment.pages.length > 0);
+    const departmentItems = departmentPages.map((page) => (
+      hasConfiguredPages
+        ? dashboardRouteItems.find((item) => item.page === page)
+        : pageItem(page)
+    )).filter(Boolean).map((item) => (
+      isSuperAdmin && item.page === 'sales-reports'
+        ? { ...item, label: 'Sales & Marketing Performance' }
+        : item.page === 'sales-reports'
+          && ['department_manager', 'team_leader'].includes(organizationalRole)
+          ? { ...item, label: 'Sales Performance' }
+          : item
+    ));
+    const departmentGroup = assignedDepartment
+      ? [{
+        title: assignedDepartment,
+        items: departmentItems,
+        emptyMessage: 'No department pages are configured.',
+      }]
+      : [];
+
     menuGroups = [
-      ...sections.map((section) => ({
-        title: section.title,
-        hideTitle: section.hideTitle,
-        items: section.items.filter((item) => item.action !== 'logout'),
-      })),
-    ].filter((group) => group.items.length);
+      { title: 'Leave', items: leaveItems },
+      ...departmentGroup,
+      ...(isSuperAdmin ? [{
+        title: 'Users',
+        items: ['dashboard', 'admin', 'employees', 'organization-history', 'department-transfers'].map(pageItem).filter(Boolean),
+      }, {
+        title: 'Settings',
+        items: ['dashboard-settings', 'departments', 'customer-care-settings'].map(pageItem).filter(Boolean),
+      }] : []),
+    ].filter((group) => group.items.length || group.emptyMessage);
   }
 
   const activeGroupTitle = menuGroups.find((group) => group.items?.some((item) => item.path === location.pathname)
@@ -237,7 +247,7 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, currentUser, 
           <div className="brand-mark"><img src="/Okoafloat.png" alt="Okoa Float" className="brand-logo" /></div>
         </div>
         <nav className="sidebar-nav" aria-label="Sidebar navigation">
-          {(departmentsLoading || departmentsError || ((isSuperAdmin || isGeneralManager) && departments.length === 0)) && (
+          {(departmentsLoading || departmentsError || (isGeneralManager && departments.length === 0)) && (
             <div className={departmentsError ? 'sidebar-nav-alert' : 'sidebar-nav-status'} role={departmentsError ? 'alert' : 'status'}>
               {departmentsError || (departmentsLoading ? 'Loading departments…' : 'No departments have been created.')}
             </div>

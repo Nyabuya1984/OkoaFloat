@@ -40,8 +40,11 @@ export default function LeaveApplicationWizard({ currentUser, leaveTypes, balanc
     handover_user_id: '', handover_notes: '', supporting_info: '', contact_phone: currentUser?.contact?.phone || currentUser?.phone || '', contact_email: currentUser?.contact?.email || currentUser?.email || '',
     ...draft,
   }));
+  const safeLeaveTypes = Array.isArray(leaveTypes) ? leaveTypes : [];
+  const isReadOnlyAccountAccess = Boolean(currentUser?.acting_as);
   const days = useMemo(() => workingDays(form.start_date, form.end_date), [form.start_date, form.end_date]);
-  const selectedType = leaveTypes.find((type) => String(type.id) === String(form.leave_type_id));
+  const hasLeaveTypes = safeLeaveTypes.length > 0;
+  const selectedType = safeLeaveTypes.find((type) => String(type.id) === String(form.leave_type_id));
   const selectedBalance = balances.find((balance) => String(balance.leave_type_id) === String(form.leave_type_id));
   const remainingAfterRequest = selectedBalance
     ? Number(selectedBalance.available_days || 0) - days
@@ -55,6 +58,7 @@ export default function LeaveApplicationWizard({ currentUser, leaveTypes, balanc
 
   const validateStep = () => {
     if (step === 1) {
+      if (!hasLeaveTypes) return 'Leave types are not available yet. Ask HR to configure at least one leave type before submitting a request.';
       if (!form.leave_type_id || !form.start_date || !form.end_date || !form.reason.trim()) return 'Complete leave type, dates, and reason.';
       if (days <= 0) return 'Choose a date range containing at least one working day.';
       if (!form.declaration || !form.employee_signature.trim() || !form.declaration_date) return 'Accept the declaration and provide your typed signature and date.';
@@ -84,6 +88,10 @@ export default function LeaveApplicationWizard({ currentUser, leaveTypes, balanc
 
   const submit = async (event) => {
     event.preventDefault();
+    if (isReadOnlyAccountAccess) {
+      setError('Leave requests cannot be submitted during read-only account access. Return to the super admin, then have the employee submit from their own account.');
+      return;
+    }
     const validationError = validateStep();
     if (validationError) { setError(validationError); return; }
     setSaving(true);
@@ -126,17 +134,55 @@ export default function LeaveApplicationWizard({ currentUser, leaveTypes, balanc
     }
   };
 
+  if (isReadOnlyAccountAccess) {
+    return (
+      <section className="leave-section leave-application-page" aria-labelledby="wizard-title">
+        <div className="leave-section-heading">
+          <div>
+            <p className="leave-kicker">READ-ONLY ACCOUNT ACCESS</p>
+            <h2 id="wizard-title">Leave application unavailable</h2>
+          </div>
+          <button className="leave-secondary-button" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="leave-alert info" role="status">
+          Leave requests cannot be submitted during read-only account access. Use “Return to super admin” above, then have the employee sign in to submit their request.
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="leave-section leave-application-page" aria-labelledby="wizard-title">
-      <div className="leave-section-heading"><div><p className="leave-kicker">NEW REQUEST · STEP {step} OF 3</p><h2 id="wizard-title">Apply for leave</h2></div><button className="leave-secondary-button" type="button" onClick={onClose}>Cancel</button></div>
+      <div className="leave-section-heading">
+        <div>
+          <p className="leave-kicker">NEW REQUEST</p>
+          <h2 id="wizard-title">Apply for leave</h2>
+          <p className="leave-application-intro">Enter your leave details and review your request before submitting.</p>
+        </div>
+        <button className="leave-secondary-button" type="button" onClick={onClose}>Cancel</button>
+      </div>
+      <nav className="leave-application-progress" aria-label="Leave application progress">
+        <ol>
+          {['Leave details', 'Handover', 'Review'].map((label, index) => (
+            <li
+              className={`leave-application-step${step === index + 1 ? ' is-current' : ''}${step > index + 1 ? ' is-complete' : ''}`}
+              aria-current={step === index + 1 ? 'step' : undefined}
+              key={label}
+            >
+              <span className="leave-step-number">{step > index + 1 ? '✓' : index + 1}</span>
+              <span>{label}</span>
+            </li>
+          ))}
+        </ol>
+      </nav>
       {error && <div className="leave-alert error" role="alert">{error}</div>}
       {requestSubmitted ? (
         <div className="leave-alert success" role="status">
           Your leave request has been submitted successfully.
           <button type="button" className="leave-primary-button" onClick={onViewRequests}>View my leave requests</button>
         </div>
-      ) : <form onSubmit={submit}>
-        {step === 1 && <fieldset className="leave-fieldset"><legend>Leave details</legend><label>Leave type<select value={form.leave_type_id} onChange={(event) => update('leave_type_id', event.target.value)} required><option value="">Select leave type</option>{leaveTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><div className="leave-form-row"><label>First day<input type="date" value={form.start_date} onChange={(event) => update('start_date', event.target.value)} required /></label><label>Last day<input type="date" value={form.end_date} onChange={(event) => update('end_date', event.target.value)} required /></label><div className="days-preview"><span>Number of days</span><strong>{days}</strong></div></div>{selectedType && selectedType.code?.toUpperCase() !== 'UNPAID' && <div className="leave-balance-preview" aria-live="polite"><div><span>Available before request</span><strong>{selectedBalance?.available_days ?? selectedType.annual_entitlement_days ?? selectedType.default_days_per_year ?? 0} days</strong></div><div><span>Estimated remaining after request</span><strong className={remainingAfterRequest !== null && remainingAfterRequest < 0 ? 'negative' : ''}>{remainingAfterRequest === null ? 'Balance loading' : `${remainingAfterRequest} days`}</strong></div><small>Final working-day count and balance are confirmed when you submit.</small></div>}<label>Reason<textarea value={form.reason} onChange={(event) => update('reason', event.target.value)} required /></label><label className="checkbox-row"><input type="checkbox" checked={form.declaration} onChange={(event) => update('declaration', event.target.checked)} /> {declaration}</label><div className="leave-form-row"><label>Typed signature<input value={form.employee_signature} onChange={(event) => update('employee_signature', event.target.value)} required /></label><label>Declaration date<input type="date" value={form.declaration_date} onChange={(event) => update('declaration_date', event.target.value)} required /></label></div></fieldset>}
+      ) : <form noValidate onSubmit={submit}>
+        {step === 1 && <fieldset className="leave-fieldset"><legend>Leave details</legend>{!hasLeaveTypes ? <div className="leave-alert error" role="alert">Leave types have not been configured yet. Please contact HR to add the leave categories before applying.</div> : <label>Leave type<select value={form.leave_type_id} onChange={(event) => update('leave_type_id', event.target.value)} disabled={!hasLeaveTypes}><option value="">Select leave type</option>{safeLeaveTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>}<div className="leave-form-row"><label>First day<input type="date" value={form.start_date} onChange={(event) => update('start_date', event.target.value)} required /></label><label>Last day<input type="date" value={form.end_date} onChange={(event) => update('end_date', event.target.value)} required /></label><div className="days-preview"><span>Number of days</span><strong>{days}</strong></div></div>{selectedType && selectedType.code?.toUpperCase() !== 'UNPAID' && <div className="leave-balance-preview" aria-live="polite"><div><span>Available before request</span><strong>{selectedBalance?.available_days ?? selectedType.annual_entitlement_days ?? selectedType.default_days_per_year ?? 0} days</strong></div><div><span>Estimated remaining after request</span><strong className={remainingAfterRequest !== null && remainingAfterRequest < 0 ? 'negative' : ''}>{remainingAfterRequest === null ? 'Balance loading' : `${remainingAfterRequest} days`}</strong></div><small>Final working-day count and balance are confirmed when you submit.</small></div>}<label>Reason<textarea value={form.reason} onChange={(event) => update('reason', event.target.value)} required /></label><label className="checkbox-row"><input type="checkbox" checked={form.declaration} onChange={(event) => update('declaration', event.target.checked)} /> {declaration}</label><div className="leave-form-row"><label>Typed signature<input value={form.employee_signature} onChange={(event) => update('employee_signature', event.target.value)} required /></label><label>Declaration date<input type="date" value={form.declaration_date} onChange={(event) => update('declaration_date', event.target.value)} required /></label></div></fieldset>}
         {step === 2 && (
           <fieldset className="leave-fieldset">
             <legend>Handover requirement</legend>

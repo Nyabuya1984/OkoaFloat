@@ -12,7 +12,6 @@ from app.models.leave import (
 )
 from app.models.auth import AuthSession, OtpChallenge
 from app.models.dashboard_feature import DashboardFeatureSetting
-from app.models.chat import ChatMessage
 from app.models.customer_care import (
     CallFollowUp,
     CallLog,
@@ -80,7 +79,6 @@ __all__ = [
     "AuthSession",
     "OtpChallenge",
     "DashboardFeatureSetting",
-    "ChatMessage",
     "Customer",
     "CallLog",
     "CallFollowUp",

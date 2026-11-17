@@ -1,4 +1,16 @@
-import { accessibleNavSections, canAccessDashboardFeature, dashboardRouteItems, effectiveOrganizationalRoles, getUserDesignation, isDashboardFeatureEnabled, isGeneralManagerUser, resolveActiveAssignment, ROLES } from './navigation';
+import {
+  accessibleNavSections,
+  canAccessDashboardFeature,
+  dashboardRouteItems,
+  effectiveOrganizationalRoles,
+  getRolePreviewLabel,
+  getUserDesignation,
+  isDashboardFeatureEnabled,
+  isGeneralManagerUser,
+  isRolePreviewEnabled,
+  resolveActiveAssignment,
+  ROLES,
+} from './navigation';
 import { resolveSalesScope } from './components/sales/SalesV2DashboardWidgets';
 
 test('dashboard features remain visible until explicitly disabled', () => {
@@ -6,6 +18,20 @@ test('dashboard features remain visible until explicitly disabled', () => {
   expect(isDashboardFeatureEnabled({ debt_collection: false }, 'debt_collection')).toBe(false);
   expect(isDashboardFeatureEnabled({}, 'customer_care')).toBe(true);
   expect(isDashboardFeatureEnabled({ customer_care: false }, 'customer_care')).toBe(false);
+});
+
+test('chat is removed from the navigation surface and route list', () => {
+  const items = accessibleNavSections(ROLES.EMPLOYEE).flatMap((section) => section.items);
+
+  expect(items.some((item) => item.page === 'chat')).toBe(false);
+  expect(dashboardRouteItems.some((item) => item.page === 'chat')).toBe(false);
+});
+
+test('role preview is limited to admin users in non-production environments', () => {
+  expect(isRolePreviewEnabled({ role: ROLES.SYSTEM_ADMIN }, 'http://localhost:3000')).toBe(true);
+  expect(isRolePreviewEnabled({ role: ROLES.SUPER_ADMIN }, 'https://app.example.com')).toBe(false);
+  expect(isRolePreviewEnabled({ role: ROLES.EMPLOYEE }, 'http://localhost:3000')).toBe(false);
+  expect(getRolePreviewLabel('manager')).toBe('Manager');
 });
 
 test.each(['sales_reports', 'debt_collection'])(

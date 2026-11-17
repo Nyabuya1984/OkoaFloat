@@ -94,24 +94,44 @@ def _reset_database():
 
 
 def _seed_database():
-    admin = User(
-        id=1,
-        employee_id="HR-0001",
-        full_name="System Administrator",
-        email=ADMIN_EMAIL,
-        personal_email="admin.personal@example.com",
-        phone_number=ADMIN_PHONE,
-        role="SUPER_ADMIN",
-        department="HR",
-        hire_date=date(2020, 1, 1),
-        is_active=True,
-        is_superuser=True,
-        account_status="approved",
-        must_change_password=True,
-    )
+    from app import ensure_default_leave_types
+
+    admin = User.query.filter(
+        (User.email == ADMIN_EMAIL) | (User.phone_number == ADMIN_PHONE)
+    ).order_by(User.id.asc()).first()
+    if admin is None:
+        admin = User(
+            employee_id="HR-0001",
+            full_name="System Administrator",
+            email=ADMIN_EMAIL,
+            personal_email="admin.personal@example.com",
+            phone_number=ADMIN_PHONE,
+            role="SUPER_ADMIN",
+            department="HR",
+            hire_date=date(2020, 1, 1),
+            is_active=True,
+            is_superuser=True,
+            account_status="approved",
+            must_change_password=True,
+        )
+        db.session.add(admin)
+    else:
+        admin.employee_id = admin.employee_id or "HR-0001"
+        admin.full_name = "System Administrator"
+        admin.email = ADMIN_EMAIL
+        admin.personal_email = admin.personal_email or "admin.personal@example.com"
+        admin.phone_number = ADMIN_PHONE
+        admin.role = "SUPER_ADMIN"
+        admin.department = "HR"
+        admin.hire_date = admin.hire_date or date(2020, 1, 1)
+        admin.is_active = True
+        admin.is_superuser = True
+        admin.account_status = "approved"
+        admin.must_change_password = True
+
     admin.set_password(ADMIN_PASSWORD)
-    db.session.add(admin)
     db.session.flush()
+
     seed_rbac()
 
     leave_definitions = [
@@ -124,38 +144,60 @@ def _seed_database():
         ("UNPAID", "Unpaid Leave", False, False, 0, 0, 0, 0, None, 0),
     ]
 
+    ensure_default_leave_types()
+
     for code, name, paid, document, days, accrual, carryover, notice, gender, minimum in leave_definitions:
-        leave_type = LeaveType(
-            code=code,
-            name=name,
-            is_paid=paid,
-            requires_document=document,
-            default_days_per_year=Decimal(str(days)),
-        )
-        db.session.add(leave_type)
-        db.session.flush()
-        db.session.add(
-            LeavePolicy(
-                leave_type_id=leave_type.id,
-                accrual_rate=Decimal(str(accrual)),
-                max_carryover=Decimal(str(carryover)),
-                notice_days_required=notice,
-                gender_restriction=gender,
-                min_service_months=minimum,
+        leave_type = LeaveType.query.filter_by(code=code).first()
+        if leave_type is None:
+            leave_type = LeaveType(
+                code=code,
+                name=name,
+                is_paid=paid,
+                requires_document=document,
+                default_days_per_year=Decimal(str(days)),
             )
-        )
+            db.session.add(leave_type)
+            db.session.flush()
+        else:
+            leave_type.name = name
+            leave_type.is_paid = paid
+            leave_type.requires_document = document
+            leave_type.default_days_per_year = Decimal(str(days))
+
+        policy = LeavePolicy.query.filter_by(leave_type_id=leave_type.id).first()
+        if policy is None:
+            policy = LeavePolicy(leave_type_id=leave_type.id)
+            db.session.add(policy)
+        policy.accrual_rate = Decimal(str(accrual))
+        policy.annual_entitlement_days = Decimal(str(days))
+        policy.max_carryover = Decimal(str(carryover))
+        policy.notice_days_required = notice
+        policy.gender_restriction = gender
+        policy.min_service_months = minimum
+
         if code in ("ANNUAL", "SICK"):
-            db.session.add(
-                LeaveBalance(
-                    user_id=admin.id,
-                    leave_type_id=leave_type.id,
-                    year=2026,
-                    entitled_days=Decimal(str(days)),
-                    used_days=Decimal("0.00"),
-                    pending_days=Decimal("0.00"),
-                    carried_over=Decimal("0.00"),
+            balance = LeaveBalance.query.filter_by(
+                user_id=admin.id,
+                leave_type_id=leave_type.id,
+                year=2026,
+            ).first()
+            if balance is None:
+                db.session.add(
+                    LeaveBalance(
+                        user_id=admin.id,
+                        leave_type_id=leave_type.id,
+                        year=2026,
+                        entitled_days=Decimal(str(days)),
+                        used_days=Decimal("0.00"),
+                        pending_days=Decimal("0.00"),
+                        carried_over=Decimal("0.00"),
+                    )
                 )
-            )
+            else:
+                balance.entitled_days = Decimal(str(days))
+                balance.used_days = Decimal("0.00")
+                balance.pending_days = Decimal("0.00")
+                balance.carried_over = Decimal("0.00")
 
     db.session.commit()
 

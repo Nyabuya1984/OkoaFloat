@@ -289,34 +289,15 @@ def _authorized_user():
 
 
 def require_active_department_write(department_key):
-    """Require the user's current assignment and one active RBAC role for writes."""
+    """Require the user to be active in the correct department, even when no
+    departmental role record was saved for that assignment yet."""
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
             if request.method == "OPTIONS":
                 return None
             user = _authorized_user()
-            assignment = get_active_assignment(user.id) if user else None
-            role_assignment = UserRole.query.filter_by(user_id=user.id).one_or_none() if user else None
-            active_role = (
-                Role.query.filter_by(id=role_assignment.role_id).one_or_none()
-                if role_assignment else None
-            )
-            matches = {
-                "sales": lambda name: "sales" in name.lower() or "marketing" in name.lower(),
-                "debt_collection": lambda name: "debt" in name.lower(),
-                "customer_care": lambda name: "care" in name.lower(),
-            }
-            if (
-                user is None
-                or assignment is None
-                or assignment.department_id != user.department_id
-                or assignment.role_id is None
-                or active_role is None
-                or assignment.role_id != active_role.id
-                or assignment.role_name != active_role.name
-                or not matches[department_key](assignment.department_name)
-            ):
+            if user is None:
                 return jsonify({
                     "data": None,
                     "error": {
@@ -324,6 +305,30 @@ def require_active_department_write(department_key):
                         "message": "This action is only available in your active department.",
                     },
                 }), 403
+            assignment = get_active_assignment(user.id)
+            matches = {
+                "sales": lambda name: "sales" in name.lower() or "marketing" in name.lower(),
+                "debt_collection": lambda name: "debt" in name.lower(),
+                "customer_care": lambda name: "care" in name.lower(),
+            }
+            department_name = ((assignment.department_name if assignment else "") or (user.department or "")).strip()
+            if not department_name or not matches[department_key](department_name):
+                return jsonify({
+                    "data": None,
+                    "error": {
+                        "code": "ACTIVE_DEPARTMENT_REQUIRED",
+                        "message": "This action is only available in your active department.",
+                    },
+                }), 403
+            if assignment is not None and assignment.department_id is not None and user.department_id is not None:
+                if assignment.department_id != user.department_id and not matches[department_key](user.department or ""):
+                    return jsonify({
+                        "data": None,
+                        "error": {
+                            "code": "ACTIVE_DEPARTMENT_REQUIRED",
+                            "message": "This action is only available in your active department.",
+                        },
+                    }), 403
             g.department_assignment = assignment
             g.department_user = user
             return view(*args, **kwargs)

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from flask_jwt_extended import create_access_token
 
+from app import ensure_default_leave_types
 from app.api.leave import _leave_reporting_chain
 from app.extensions import db
 from app.models import (
@@ -11,6 +12,8 @@ from app.models import (
     Department,
     DepartmentAssignmentHistory,
     LeaveBalance,
+    LeavePolicy,
+    LeaveType,
     User,
 )
 from app.utils.organization import get_active_assignment
@@ -36,11 +39,63 @@ def _submit(client, token, start="2026-10-01", end="2026-10-07"):
     )
 
 
+def test_ensure_default_leave_types_bootstraps_catalog(app):
+    with app.app_context():
+        LeaveBalance.query.delete()
+        LeavePolicy.query.delete()
+        LeaveType.query.delete()
+        db.session.commit()
+
+        ensure_default_leave_types()
+
+        types = LeaveType.query.order_by(LeaveType.name.asc()).all()
+        codes = {leave_type.code for leave_type in types}
+        assert {"ANNUAL", "SICK", "MATERNITY", "UNPAID"}.issubset(codes)
+        assert LeavePolicy.query.count() >= 1
+
+
 def test_list_types(client, admin_token):
     response = client.get("/api/leave/types", headers=_headers(admin_token))
 
     assert response.status_code == 200
     assert len(response.get_json()["data"]) == 7
+
+
+def test_handover_users_lists_active_colleagues_without_current_user(client, session):
+    admin = session.query(User).filter_by(phone_number="+254721143189").one()
+    colleague = User(
+        employee_id="EMP-HANDOVER-USER",
+        full_name="Handover Colleague",
+        email="handover.colleague@example.test",
+        phone_number="+254700000297",
+        role="employee",
+        is_active=True,
+        account_status="approved",
+    )
+    inactive = User(
+        employee_id="EMP-HANDOVER-INACTIVE",
+        full_name="Inactive Colleague",
+        email="handover.inactive@example.test",
+        phone_number="+254700000298",
+        role="employee",
+        is_active=False,
+        account_status="deactivated",
+    )
+    colleague.set_password("Pass@word1")
+    inactive.set_password("Pass@word1")
+    session.add_all([colleague, inactive])
+    session.commit()
+    with client.application.app_context():
+        token = create_access_token(identity=str(admin.id))
+
+    response = client.get(
+        "/api/leave/handover-users", headers=_headers(token)
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == [
+        {"id": colleague.id, "name": colleague.full_name}
+    ]
 
 
 def test_admin_can_configure_annual_leave_allocation(client, admin_token):

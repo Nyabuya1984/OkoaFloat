@@ -10,7 +10,6 @@ import {
   Hand,
   LayoutDashboard,
   LogOut,
-  MessageCircle,
   MapPin,
   History,
   Settings,
@@ -27,6 +26,32 @@ export const ROLES = {
   HR: 'hr_admin',
   SYSTEM_ADMIN: 'system_admin',
   SUPER_ADMIN: 'super_admin',
+};
+
+export const ROLE_PREVIEW_OPTIONS = [
+  { value: ROLES.EMPLOYEE, label: 'Employee' },
+  { value: ROLES.MANAGER, label: 'Manager' },
+  { value: ROLES.HR, label: 'HR Administrator' },
+  { value: ROLES.SYSTEM_ADMIN, label: 'System Administrator' },
+  { value: ROLES.SUPER_ADMIN, label: 'Super Admin' },
+];
+
+export const getRolePreviewLabel = (role = '') => {
+  const normalizedRole = normalizeRole(role);
+  return ROLE_PREVIEW_OPTIONS.find((option) => normalizeRole(option.value) === normalizedRole)?.label
+    || normalizedRole.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+
+export const isRolePreviewEnabled = (user = {}, hostname = '') => {
+  const normalizedRole = normalizeRole(user?.role);
+  const isAdmin = normalizedRole === ROLES.SYSTEM_ADMIN || normalizedRole === ROLES.SUPER_ADMIN || user?.is_superuser === true;
+  if (!isAdmin) return false;
+
+  const host = String(hostname || (typeof window !== 'undefined' ? window.location.hostname : '')).toLowerCase();
+  const isNonProductionEnvironment = host
+    ? /localhost|127\.0\.0\.1|staging|test|preview/.test(host)
+    : process.env.NODE_ENV !== 'production';
+  return isNonProductionEnvironment;
 };
 
 export const normalizeRole = (role) => String(role || 'employee').trim().toLowerCase();
@@ -151,7 +176,6 @@ export const GENERAL_MANAGER_PAGES = new Set([
   'dashboard',
   'approvals',
   'calendar',
-  'chat',
   'sales-reports',
   'debt-collection',
   'organization-history',
@@ -183,7 +207,6 @@ export const navSections = [
       { label: 'My Leave', icon: FileText, path: '/dashboard/leave', page: 'my-leave', roles: [ROLES.EMPLOYEE, ROLES.MANAGER, ROLES.HR, ROLES.SYSTEM_ADMIN, ROLES.SUPER_ADMIN] },
       { label: 'History', icon: FileBarChart2, path: '/dashboard/history', page: 'history', roles: [ROLES.EMPLOYEE, ROLES.MANAGER, ROLES.HR, ROLES.SYSTEM_ADMIN, ROLES.SUPER_ADMIN] },
       { label: 'Handover report', icon: Hand, path: '/dashboard/handover', page: 'delegations', roles: [ROLES.EMPLOYEE, ROLES.MANAGER, ROLES.HR, ROLES.SYSTEM_ADMIN, ROLES.SUPER_ADMIN] },
-      { label: 'Chat', icon: MessageCircle, path: '/dashboard/chat', page: 'chat', roles: [ROLES.EMPLOYEE, ROLES.MANAGER, ROLES.HR, ROLES.SYSTEM_ADMIN, ROLES.SUPER_ADMIN], badge: 'unread' },
     ],
   },
   {

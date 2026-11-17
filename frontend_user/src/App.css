@@ -14,7 +14,7 @@ textarea {
   display: grid;
   place-items: center;
   padding: 28px;
-  background: radial-gradient(circle at 14% 12%, rgba(255, 255, 255, .2), transparent 32%), #ed7a16;
+  background: radial-gradient(circle at 14% 12%, rgba(237, 122, 22, .12), transparent 32%), #090b14;
 }
 
 .auth-card {
@@ -59,7 +59,7 @@ textarea {
   min-height: 560px;
   padding: 52px;
   color: #fff;
-  background: linear-gradient(145deg, #ed7a16, #c95100);
+  background: linear-gradient(145deg, #202a3a, #0b0d17);
 }
 
 .auth-visual-kicker,

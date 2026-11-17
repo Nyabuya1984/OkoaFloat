@@ -1,4 +1,4 @@
-from app.models import Department, DepartmentPageConfiguration
+from app.models import Department, DepartmentPageConfiguration, User
 
 
 def test_super_admin_can_read_defaults_and_configure_department_pages(
@@ -91,3 +91,30 @@ def test_empty_department_page_selection_uses_known_department_defaults(
     assert reset.status_code == 200
     assert reset.get_json()["data"]["pages"] == ["debt-collection"]
     assert session.get(DepartmentPageConfiguration, department.id) is None
+
+
+def test_user_can_read_only_their_own_department_page_configuration(
+    client, rbac_tokens, session
+):
+    department = Department(name="Customer Care")
+    session.add(department)
+    session.flush()
+    user = User.query.filter_by(email="rbac.customer_care@example.test").one()
+    user.department_id = department.id
+    session.add(DepartmentPageConfiguration(
+        department_id=department.id,
+        pages=["customer-care-logs", "okia-overview"],
+    ))
+    session.commit()
+
+    response = client.get(
+        "/api/organization/department-pages/me",
+        headers={"Authorization": f"Bearer {rbac_tokens['customer_care']}"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "department_id": department.id,
+        "department_name": "Customer Care",
+        "pages": ["customer-care-logs", "okia-overview"],
+    }

@@ -38,7 +38,7 @@ from app.utils.organization import (
     get_active_assignment,
     is_group_leader_substitute,
 )
-from app.utils.rbac import normalize_role
+from app.utils.rbac import is_super_admin, normalize_role
 from app.utils.workflow import handover_gate, transition
 
 
@@ -67,6 +67,26 @@ def _current_user():
     )
 
 
+@leave_bp.get("/handover-users")
+@jwt_required()
+def handover_users():
+    user = _current_user()
+    if not user:
+        return _error("User not found or inactive", 404)
+
+    peers = User.query.filter(
+        User.id != user.id,
+        User.is_active.is_(True),
+        User.is_archived.is_(False),
+        User.is_deleted.is_(False),
+        User.account_status == "approved",
+    )
+    if not is_super_admin(user):
+        peers = peers.filter(User.is_superuser.is_(False), User.role != "SUPER_ADMIN")
+    peers = peers.order_by(User.full_name.asc()).all()
+    return jsonify({"data": [{"id": peer.id, "name": peer.full_name} for peer in peers]})
+
+
 def _leave_reporting_chain(employee):
     def active_assignment(user_id, expected_role, department_id):
         manager = db.session.get(User, user_id) if user_id else None
@@ -81,8 +101,8 @@ def _leave_reporting_chain(employee):
             or (
                 expected_role != "general_manager"
                 and (
-                    assignment.department_id != manager.department_id
-                    or manager.department_id != department_id
+                    (assignment.department_id is not None and assignment.department_id != manager.department_id)
+                    or (department_id is not None and manager.department_id != department_id)
                 )
             )
         ):
@@ -90,6 +110,8 @@ def _leave_reporting_chain(employee):
         return manager
 
     def active_department_role(role):
+        if department_id is None:
+            return False
         return DepartmentAssignmentHistory.query.filter_by(
             department_id=department_id,
             organizational_role=role,
@@ -115,71 +137,78 @@ def _leave_reporting_chain(employee):
     ):
         return None
     chain = {}
+
     if requester_role == "general_manager":
         return chain if employee.manager_id is None else None
-    if (
-        department_id is None
-        or employee_assignment.department_id != department_id
-    ):
+    if department_id is None and employee.department is not None:
+        department_id = employee.department_id
+    if department_id is None and employee.manager_id is not None:
+        manager = db.session.get(User, employee.manager_id)
+        if manager and manager.is_currently_active() and manager.account_status == "approved":
+            manager_assignment = get_active_assignment(manager.id)
+            if manager_assignment and manager_assignment.organizational_role == "general_manager":
+                return {"general_manager": manager}
         return None
     if requester_role == "field_agent":
-        team_leader = active_assignment(
-            employee.manager_id, "team_leader", department_id
-        )
+        manager = db.session.get(User, employee.manager_id) if employee.manager_id else None
+        manager_assignment = get_active_assignment(employee.manager_id) if employee.manager_id else None
+        if manager and manager_assignment and manager_assignment.organizational_role == "general_manager":
+            chain["general_manager"] = manager
+            return chain
+        team_leader = active_assignment(employee.manager_id, "team_leader", department_id)
         if team_leader:
             chain["team_leader"] = team_leader
             next_manager_id = team_leader.manager_id
-            direct_general_manager = active_assignment(
-                next_manager_id, "general_manager", None
-            )
-            if direct_general_manager and not active_department_role("department_manager"):
-                chain["general_manager"] = direct_general_manager
-                return chain
         else:
-            direct_general_manager = active_assignment(
-                employee.manager_id, "general_manager", None
-            )
+            inactive_leader = manager
+            inactive_assignment = manager_assignment
             if (
-                direct_general_manager
-                and not active_department_role("department_manager")
-                and not active_department_role("team_leader")
+                inactive_leader
+                and not inactive_leader.is_currently_active()
+                and inactive_assignment
+                and inactive_assignment.organizational_role == "team_leader"
+                and inactive_assignment.department_id == department_id
             ):
-                chain["general_manager"] = direct_general_manager
-                return chain
-            inactive_leader = (
-                db.session.get(User, employee.manager_id)
-                if employee.manager_id
-                else None
-            )
-            inactive_assignment = (
-                get_active_assignment(inactive_leader.id)
-                if inactive_leader
-                else None
-            )
-            if (
-                not inactive_leader
-                or inactive_leader.is_currently_active()
-                or not inactive_assignment
-                or inactive_assignment.organizational_role != "team_leader"
-                or inactive_assignment.department_id != department_id
-            ):
-                return None
-            department_manager = active_assignment(
-                inactive_leader.manager_id,
-                "department_manager",
-                department_id,
-            )
-            if (
-                not department_manager
-                or not is_group_leader_substitute(
-                    department_manager, department_id
+                department_manager = active_assignment(
+                    inactive_leader.manager_id,
+                    "department_manager",
+                    department_id,
                 )
-            ):
+                if department_manager and is_group_leader_substitute(department_manager, department_id):
+                    chain["team_leader"] = department_manager
+                    next_manager_id = inactive_leader.manager_id
+                else:
+                    return None
+            else:
                 return None
-            # The department manager temporarily fulfills both approval stages;
-            # the normal department-manager approval remains in the workflow.
-            chain["team_leader"] = department_manager
-            next_manager_id = inactive_leader.manager_id
+        if "team_leader" in chain:
+            manager_of_leader = db.session.get(User, next_manager_id) if next_manager_id else None
+            if manager_of_leader and manager_of_leader.is_currently_active() and manager_of_leader.account_status == "approved":
+                leader_parent_assignment = get_active_assignment(manager_of_leader.id)
+                if leader_parent_assignment and leader_parent_assignment.organizational_role == "department_manager":
+                    chain["department_manager"] = manager_of_leader
+                    next_manager_id = manager_of_leader.manager_id
+                elif leader_parent_assignment and leader_parent_assignment.organizational_role == "general_manager":
+                    chain["general_manager"] = manager_of_leader
+                    return chain
+        if "department_manager" not in chain:
+            department_manager = active_assignment(next_manager_id, "department_manager", department_id)
+            if department_manager:
+                chain["department_manager"] = department_manager
+                next_manager_id = department_manager.manager_id
+        if "general_manager" not in chain:
+            general_manager = active_assignment(next_manager_id, "general_manager", None)
+            if not general_manager or general_manager.manager_id is not None:
+                return None
+            chain["general_manager"] = general_manager
+            return chain
+        if "department_manager" in chain:
+            next_manager_id = chain["department_manager"].manager_id
+        general_manager = active_assignment(next_manager_id, "general_manager", None)
+        if not general_manager or general_manager.manager_id is not None:
+            return None
+        chain["general_manager"] = general_manager
+        return chain
     elif requester_role == "team_leader":
         next_manager_id = employee.manager_id
     elif requester_role == "department_manager":
@@ -191,23 +220,17 @@ def _leave_reporting_chain(employee):
 
     if requester_role in {"field_agent", "team_leader"}:
         if requester_role == "team_leader":
-            direct_general_manager = active_assignment(
-                next_manager_id, "general_manager", None
-            )
+            direct_general_manager = active_assignment(next_manager_id, "general_manager", None)
             if direct_general_manager and not active_department_role("department_manager"):
                 chain["general_manager"] = direct_general_manager
                 return chain
-        department_manager = active_assignment(
-            next_manager_id, "department_manager", department_id
-        )
+        department_manager = active_assignment(next_manager_id, "department_manager", department_id)
         if not department_manager:
             return None
         chain["department_manager"] = department_manager
         next_manager_id = department_manager.manager_id
 
-    general_manager = active_assignment(
-        next_manager_id, "general_manager", None
-    )
+    general_manager = active_assignment(next_manager_id, "general_manager", None)
     if not general_manager or general_manager.manager_id is not None:
         return None
     chain["general_manager"] = general_manager
@@ -1147,6 +1170,9 @@ def create_request():
             return _error("start_date cannot be before today")
 
         leave_type = LeaveType.query.get(leave_type_id)
+        if not leave_type:
+            ensure_default_leave_types()
+            leave_type = LeaveType.query.get(leave_type_id)
         if not leave_type:
             return _error("Leave type not found", 404)
         reporting_chain = _leave_reporting_chain(user)

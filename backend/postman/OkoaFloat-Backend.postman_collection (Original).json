@@ -109,16 +109,6 @@
       ]
     },
     {
-      "name": "Chat",
-      "item": [
-        {"name": "Chat Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/users"}},
-        {"name": "Messages With Peer", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}"}},
-        {"name": "Unread Count", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/unread-count"}},
-        {"name": "Send Message", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}"}, "url": "{{baseUrl}}/api/chat/messages"}},
-        {"name": "Mark Messages Read", "request": {"method": "POST", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}/read"}}
-      ]
-    },
-    {
       "name": "Administration",
       "item": [
         {"name": "Admin Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/admin/users?status=active&page=1&per_page=25"}},

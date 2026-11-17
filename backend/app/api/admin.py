@@ -25,6 +25,7 @@ from app.utils.rbac import (
     user_tier,
 )
 from app.utils.organization import get_active_assignment
+from app.utils.department_pages import default_department_pages as _default_department_pages
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -53,34 +54,6 @@ DEPARTMENT_PAGE_LABELS = {
     "hr-module": "HR module",
     "hr-verification": "HR verification",
 }
-
-
-def _default_department_pages(name):
-    normalized = str(name or "").casefold()
-    if "sales" in normalized or "marketing" in normalized:
-        return ["sales-reports", "organization-live"]
-    if "debt" in normalized or "collection" in normalized:
-        return ["debt-collection"]
-    if "customer" in normalized or "care" in normalized:
-        return [
-            "customer-care-logs",
-            "customer-care-new",
-            "customer-care-customers",
-            "customer-care-follow-ups",
-            "okia-overview",
-            "okia-escalations",
-            "okia-shifts",
-            "okia-shift-coverage",
-            "okia-concerns",
-            "okia-gm-resolution",
-            "okia-gm-attention",
-            "okia-agent-shift-matrix",
-            "okia-concern-report",
-            "okia-escalation-report",
-        ]
-    if "human resources" in normalized or normalized == "hr" or "people" in normalized:
-        return ["hr-module", "hr-verification"]
-    return []
 
 
 def _error(message, code="BAD_REQUEST", status=400):

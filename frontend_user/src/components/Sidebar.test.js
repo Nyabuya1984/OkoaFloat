@@ -35,10 +35,10 @@ const mountSidebar = async (currentUser) => {
 
 beforeEach(() => {
   organizationApi.getDepartments.mockResolvedValue([
-    { id: 1, name: 'Sales & Marketing' },
-    { id: 2, name: 'Debt Collection' },
-    { id: 3, name: 'Customer Care' },
-    { id: 4, name: 'People & Culture' },
+    { id: 1, name: 'Sales & Marketing', pages: ['sales-reports', 'organization-live'] },
+    { id: 2, name: 'Debt Collection', pages: ['debt-collection'] },
+    { id: 3, name: 'Customer Care', pages: ['customer-care-logs'] },
+    { id: 4, name: 'People & Culture', pages: [] },
   ]);
   organizationApi.getDepartmentPageConfigurations.mockResolvedValue([
     { id: 1, name: 'Sales & Marketing', pages: ['sales-reports', 'organization-live'] },
@@ -89,37 +89,33 @@ test('General Manager sidebar lists live departments before Users and omits Sett
   await act(async () => root.unmount());
 });
 
-test('Super Admin sidebar groups leave, departments, users, and settings', async () => {
+test('Super Admin sidebar shows its department, users, and settings', async () => {
   const { container, root } = await mountSidebar({
     role: 'super_admin',
     is_superuser: true,
+    department: 'Sales & Marketing',
+    active_assignment: { department_name: 'Sales & Marketing', department_role: 'sales' },
   });
 
   const groupButtons = Array.from(container.querySelectorAll('button.sidebar-group-toggle'));
   expect(groupButtons.map((button) => button.textContent.trim())).toEqual([
     'Leave+',
     'Sales & Marketing+',
-    'Debt Collection+',
-    'Customer Care+',
-    'People & Culture+',
     'Users−',
     'Settings+',
   ]);
   expect(container.querySelector('a[href="/dashboard/employees"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).toBeNull();
 
-  await act(async () => groupButtons[2].click());
-  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).not.toBeNull();
-
-  await act(async () => groupButtons[4].click());
-  expect(container.querySelector('a[href="/dashboard/hr"]')).not.toBeNull();
-  expect(container.textContent).not.toContain('No department pages are configured.');
+  await act(async () => groupButtons[1].click());
+  expect(container.querySelector('a[href="/dashboard/reports/sales"]')).not.toBeNull();
 
   await act(async () => groupButtons[0].click());
   expect(container.querySelector('a[href="/dashboard/leave/apply"]')).not.toBeNull();
   expect(container.querySelector('a[href="/dashboard/leave-policies"]')).not.toBeNull();
   expect(container.querySelector('a[href="/dashboard/leave-balances"]')).not.toBeNull();
 
-  await act(async () => groupButtons[6].click());
+  await act(async () => groupButtons[3].click());
   expect(container.querySelector('a[href="/dashboard/departments"]')).not.toBeNull();
   expect(container.querySelector('.sidebar-footer .sidebar-logout')).not.toBeNull();
 
@@ -136,7 +132,12 @@ test('department loading failures are surfaced in the sidebar', async () => {
 });
 
 test('department list refreshes after department settings change', async () => {
-  const { container, root } = await mountSidebar({ role: 'super_admin', is_superuser: true });
+  const { container, root } = await mountSidebar({
+    role: 'super_admin',
+    is_superuser: true,
+    department: 'Legal',
+    active_assignment: { department_name: 'Legal' },
+  });
   organizationApi.getDepartmentPageConfigurations.mockResolvedValueOnce([
     { id: 5, name: 'Legal', pages: ['hr-module'] },
   ]);
@@ -156,7 +157,12 @@ test('super admin department navigation uses the configured page selection', asy
   organizationApi.getDepartmentPageConfigurations.mockResolvedValueOnce([
     { id: 7, name: 'Legal', pages: ['hr-module'] },
   ]);
-  const { container, root } = await mountSidebar({ role: 'super_admin', is_superuser: true });
+  const { container, root } = await mountSidebar({
+    role: 'super_admin',
+    is_superuser: true,
+    department: 'Legal',
+    active_assignment: { department_name: 'Legal' },
+  });
   const group = Array.from(container.querySelectorAll('button.sidebar-group-toggle'))
     .find((button) => button.textContent.includes('Legal'));
 
@@ -170,7 +176,12 @@ test('super admin department navigation falls back when a saved selection is emp
   organizationApi.getDepartmentPageConfigurations.mockResolvedValueOnce([
     { id: 2, name: 'Debt Collection', pages: [] },
   ]);
-  const { container, root } = await mountSidebar({ role: 'super_admin', is_superuser: true });
+  const { container, root } = await mountSidebar({
+    role: 'super_admin',
+    is_superuser: true,
+    department: 'Debt Collection',
+    active_assignment: { department_name: 'Debt Collection' },
+  });
   const group = Array.from(container.querySelectorAll('button.sidebar-group-toggle'))
     .find((button) => button.textContent.includes('Debt Collection'));
 
@@ -185,6 +196,8 @@ test('super admin department pages are not hidden by role feature flags', async 
   const { container, root } = await mountSidebar({
     role: 'super_admin',
     is_superuser: true,
+    department: 'Customer Care',
+    active_assignment: { department_name: 'Customer Care' },
     dashboard_features: { customer_care: false },
   });
   const group = Array.from(container.querySelectorAll('button.sidebar-group-toggle'))
@@ -197,7 +210,7 @@ test('super admin department pages are not hidden by role feature flags', async 
   await act(async () => root.unmount());
 });
 
-test('system administrator sees default department pages when role features are disabled', async () => {
+test('system administrator sees only its department pages when role features are disabled', async () => {
   organizationApi.getDepartmentPageConfigurations.mockResolvedValue([
     { id: 2, name: 'Debt Collection', pages: [] },
     { id: 3, name: 'Customer Care', pages: [] },
@@ -206,6 +219,8 @@ test('system administrator sees default department pages when role features are 
   const { container, root } = await mountSidebar({
     role: 'system_admin',
     is_superuser: true,
+    department: 'Customer Care',
+    active_assignment: { department_name: 'Customer Care' },
     dashboard_features: {
       customer_care: false,
       debt_collection: false,
@@ -233,17 +248,15 @@ test('system administrator sees default department pages when role features are 
   ].forEach((path) => {
     expect(container.querySelector(`a[href="${path}"]`)).not.toBeNull();
   });
-  await act(async () => groups.find((button) => button.textContent.includes('Debt Collection')).click());
-  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).not.toBeNull();
-  await act(async () => groups.find((button) => button.textContent.includes('Sales & Marketing')).click());
-  expect(container.querySelector('a[href="/dashboard/reports/sales"]')).not.toBeNull();
-  expect(container.querySelector('a[href="/dashboard/organization/live"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/reports/sales"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/organization/live"]')).toBeNull();
   expect(container.textContent).not.toContain('No department pages are configured.');
 
   await act(async () => root.unmount());
 });
 
-test('super admin always sees core pages for customer care, debt, and sales', async () => {
+test('super admin does not see other departments outside its assignment', async () => {
   organizationApi.getDepartmentPageConfigurations.mockResolvedValue([
     { id: 1, name: 'Sales & Marketing', pages: ['organization-live'] },
     { id: 2, name: 'Debt Collection', pages: [] },
@@ -252,6 +265,8 @@ test('super admin always sees core pages for customer care, debt, and sales', as
   const { container, root } = await mountSidebar({
     role: 'super_admin',
     is_superuser: true,
+    department: 'Sales & Marketing',
+    active_assignment: { department_name: 'Sales & Marketing' },
     dashboard_features: {
       customer_care: false,
       debt_collection: false,
@@ -266,28 +281,12 @@ test('super admin always sees core pages for customer care, debt, and sales', as
     });
   };
 
-  await expectPages('Customer Care', [
-    '/dashboard/customer-care/logs',
-    '/dashboard/customer-care/new',
-    '/dashboard/customer-care/customers',
-    '/dashboard/customer-care/follow-ups',
-    '/okia/dashboard',
-    '/okia/escalations',
-    '/okia/shifts',
-    '/okia/shifts/coverage',
-    '/okia/concerns',
-    '/okia/reports/gm-resolution',
-    '/okia/reports/gm-attention',
-    '/okia/reports/agent-shift-matrix',
-    '/okia/reports/concerns',
-    '/okia/reports/escalations',
-  ]);
-  await expectPages('Debt Collection', ['/dashboard/debt-collection']);
   await expectPages('Sales & Marketing', [
-    '/dashboard/reports/sales',
     '/dashboard/organization/live',
   ]);
 
+  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/customer-care/logs"]')).toBeNull();
   expect(container.textContent).not.toContain('No department pages are configured.');
   await act(async () => root.unmount());
 });
@@ -322,6 +321,75 @@ test('department manager only sees leave and department-specific navigation', as
   await act(async () => root.unmount());
 });
 
+test('employee sidebar shows only the assigned department and no admin settings', async () => {
+  const { container, root } = await mountSidebar({
+    role: 'employee',
+    department: 'Sales & Marketing',
+    active_assignment: {
+      organizational_role: 'field_agent',
+      department_name: 'Sales & Marketing',
+      department_role: 'sales',
+    },
+    dashboard_features: { sales_reports: true, debt_collection: true, customer_care: true },
+  });
+
+  const groups = Array.from(container.querySelectorAll('.sidebar-group-toggle'))
+    .map((button) => button.textContent.trim());
+  expect(groups).toEqual(['Leave+', 'Sales & Marketing+']);
+  expect(container.querySelector('a[href="/dashboard/debt-collection"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/customer-care/logs"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/settings"]')).toBeNull();
+
+  await act(async () => root.unmount());
+});
+
+test('employee sidebar follows only the configured pages for its department', async () => {
+  const { container, root } = await mountSidebar({
+    role: 'employee',
+    department: 'Customer Care',
+    department_pages: ['customer-care-logs', 'okia-overview'],
+    active_assignment: {
+      organizational_role: 'field_agent',
+      department_name: 'Customer Care',
+      department_role: 'customer_care',
+      department_pages: ['customer-care-logs', 'okia-overview'],
+    },
+    dashboard_features: { customer_care: false },
+  });
+
+  const group = Array.from(container.querySelectorAll('.sidebar-group-toggle'))
+    .find((button) => button.textContent.includes('Customer Care'));
+  await act(async () => group.click());
+  expect(container.querySelector('a[href="/dashboard/customer-care/logs"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/okia/dashboard"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/dashboard/customer-care/new"]')).toBeNull();
+  expect(container.querySelector('a[href="/dashboard/departments"]')).toBeNull();
+
+  await act(async () => root.unmount());
+});
+
+test('system admin sees only its assigned department and retains Settings', async () => {
+  const { container, root } = await mountSidebar({
+    role: 'system_admin',
+    is_superuser: true,
+    department: 'Sales & Marketing',
+    active_assignment: {
+      organizational_role: 'field_agent',
+      department_name: 'Sales & Marketing',
+      department_role: 'sales',
+    },
+  });
+
+  const groups = Array.from(container.querySelectorAll('.sidebar-group-toggle'))
+    .map((button) => button.textContent.trim());
+  expect(groups).toEqual(['Leave+', 'Sales & Marketing+', 'Users−', 'Settings+']);
+  await act(async () => container.querySelectorAll('.sidebar-group-toggle')[3].click());
+  expect(container.querySelector('a[href="/dashboard/settings"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/dashboard/departments"]')).not.toBeNull();
+
+  await act(async () => root.unmount());
+});
+
 test('Debt Collection Representative sees its department module when feature data is unavailable', async () => {
   const { container, root } = await mountSidebar({
     role: 'employee',
@@ -335,6 +403,9 @@ test('Debt Collection Representative sees its department module when feature dat
     dashboard_features: { debt_collection: false },
   });
 
+  const departmentGroup = Array.from(container.querySelectorAll('.sidebar-group-toggle'))
+    .find((button) => button.textContent.includes('Debt Collection'));
+  await act(async () => departmentGroup.click());
   expect(container.querySelector('a[href="/dashboard/debt-collection"]')).not.toBeNull();
   expect(container.querySelector('a[href="/logout"]')).toBeNull();
   expect(container.querySelector('.sidebar-footer .sidebar-logout')).not.toBeNull();

@@ -1,17 +1,30 @@
-import { getAuthToken } from './authStorage';
+import { getAuthToken, refreshAuthToken } from './authStorage';
 
 const API_BASE = `${process.env.REACT_APP_API_URL || ''}/api/leave`;
+let refreshPromise = null;
 
 const request = async (path, options = {}) => {
-  const token = getAuthToken();
-  const response = await fetch(`${API_BASE}${path}`, {
+  const send = () => fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
       ...(options.headers || {}),
     },
   });
+  let response = await send();
+  if (response.status === 401) {
+    try {
+      if (!refreshPromise) {
+        refreshPromise = refreshAuthToken().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      if (await refreshPromise) response = await send();
+    } catch {
+      refreshPromise = null;
+    }
+  }
 
   const isJson = response.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await response.json().catch(() => null) : null;
@@ -20,8 +33,10 @@ const request = async (path, options = {}) => {
   }
   if (!response.ok) {
     const message = payload.error?.message
-      || payload.error
+      || (typeof payload.error === 'string' ? payload.error : '')
+      || payload.msg
       || payload.message
+      || (response.status === 401 ? 'Your session has expired. Please sign in again.' : '')
       || 'Unable to complete the request.';
     throw new Error(message);
   }
@@ -80,6 +95,7 @@ export const getPendingLeaveRequests = () => request('/requests/pending');
 export const getTeamCalendar = () => request('/team-calendar');
 export const getLeaveHistory = () => request('/requests/history');
 export const getDelegations = () => request('/requests/delegations');
+export const getHandoverUsers = () => request('/handover-users');
 
 export const decideLeaveRequest = (requestId, decision, decisionComment, signature) => request(
   `/requests/${requestId}/${decision}`,

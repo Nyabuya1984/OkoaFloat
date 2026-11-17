@@ -85,7 +85,9 @@ Default credentials:
 
 ## OTP authentication and recovery
 
-OTP codes are dispatched via SMS to the user's mobile phone using Onfon Media's Bulk SMS API.
+OTP codes are dispatched by SMS to the user's mobile phone using Onfon Media's Bulk SMS API
+and by email through the configured SMTP server. Both channels are attempted for registration,
+login, password reset, and account recovery.
 In development and testing, codes are also saved in the `OTP.plaintext_code` column and logged
 to the backend console for rapid local development. In other configurations, only the OTP hash is
 stored. Codes expire after 10 minutes and are single-use.
@@ -97,6 +99,9 @@ SMS delivery is configured using:
 - `ONFON_API_KEY`: payload `ApiKey`.
 - `ONFON_CLIENT_ID`: payload `ClientId`.
 - `ONFON_SENDER_ID`: payload `SenderId` (optional sender ID / alphanumeric header).
+- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, and `MAIL_DEFAULT_SENDER`:
+  SMTP server and credentials for OTP email delivery.
+- `MAIL_USE_TLS` / `MAIL_USE_SSL`: enable exactly one transport mode (defaults to TLS).
 
 Login remains phone-and-password based. Verify with
 `POST /api/auth/verify-otp` using `phone_number` and `otp`. Registration
@@ -204,16 +209,7 @@ field-agent assignment until an authorized manager changes it.
 | POST | `/api/leave/requests/<request_id>/handover/remind` | Remind a delegate. |
 | GET | `/api/leave/requests/<request_id>/handover/pdf` | Download a handover PDF. |
 | POST/GET/DELETE | `/api/leave/requests/<request_id>/handover/attachment` | Upload or manage handover attachments. |
-
-## Chat
-
-| Method | Endpoint | Function |
-|---|---|---|
-| GET | `/api/chat/users` | List chat peers. |
-| GET | `/api/chat/messages/<peer_id>` | Read messages with a peer. |
-| POST | `/api/chat/messages` | Send a message. |
-| GET | `/api/chat/unread-count` | Read the unread message count. |
-| POST | `/api/chat/messages/<peer_id>/read` | Mark a peer's messages as read. |
+| GET | `/api/leave/handover-users` | List eligible colleagues for a leave handover. |
 
 ## Debt Collection
 

@@ -11,7 +11,6 @@ export default function ApprovalRequestCard({
   waitingForDelegate,
   waitingForManager,
   onView,
-  onChat,
   onDecide,
   onChase,
   onVerify,
@@ -79,7 +78,6 @@ export default function ApprovalRequestCard({
       <div className="approval-request-actions">
         <button type="button" className="leave-secondary-button action-view" onClick={() => onView(request, 'request')}>View leave details</button>
         <button type="button" className="leave-secondary-button action-view" onClick={() => onView(request, 'handover')}>View Handover report</button>
-        <button type="button" className="leave-secondary-button action-view" onClick={() => onChat(request)}>Chat employee</button>
         {!handoverReady && request.workflow_state === 'handover_pending' && <button type="button" className="leave-secondary-button action-navigation" onClick={() => onChase(request)}>Chase Delegate</button>}
         {canVerify && <button type="button" className="leave-primary-button" onClick={() => onVerify(request.id)}>Verify &amp; Complete</button>}
         {!canVerify && !waitingForDelegate && !waitingForManager && <>

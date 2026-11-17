@@ -57,6 +57,64 @@ def test_super_admin_can_save_own_profile_without_employee_assignment_fields(
     assert response.get_json()["data"]["is_superuser"] is True
 
 
+def test_super_admin_can_start_read_only_user_access_and_stop_it(client, session, admin_token):
+    employee = User(
+        employee_id="EMP-ACCESS-001",
+        full_name="Account Access Employee",
+        email="account.access@example.test",
+        phone_number="+254700000091",
+        role="employee",
+        is_active=True,
+        account_status="approved",
+    )
+    employee.set_password("Employee@2026!")
+    session.add(employee)
+    session.commit()
+
+    access_response = client.post(
+        f"/api/auth/admin/users/{employee.id}/access",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert access_response.status_code == 200, access_response.get_json()
+    access_payload = access_response.get_json()["data"]
+    access_headers = {"Authorization": f"Bearer {access_payload['access_token']}"}
+    me_response = client.get("/api/auth/me", headers=access_headers)
+    assert me_response.status_code == 200
+    assert me_response.get_json()["user"]["acting_as"]["name"] == "System Administrator"
+
+    write_response = client.post("/api/auth/admin/users", headers=access_headers, json={})
+    assert write_response.status_code != 200
+
+    stop_response = client.post("/api/auth/admin/users/access/stop", headers=access_headers)
+    assert stop_response.status_code == 200, stop_response.get_json()
+    revoked_response = client.get("/api/auth/me", headers=access_headers)
+    assert revoked_response.status_code != 200
+
+
+def test_non_super_admin_cannot_start_user_access(client, session):
+    employee = User(
+        employee_id="EMP-ACCESS-002",
+        full_name="Account Access Employee",
+        email="account.access2@example.test",
+        phone_number="+254700000092",
+        role="employee",
+        is_active=True,
+        account_status="approved",
+    )
+    employee.set_password("Employee@2026!")
+    session.add(employee)
+    session.commit()
+    token = create_access_token(identity=str(employee.id))
+
+    response = client.post(
+        f"/api/auth/admin/users/{employee.id}/access",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+
+
 def test_admin_can_create_users_with_gm_fallback_for_missing_manager_tiers(
     client, session, admin_token
 ):

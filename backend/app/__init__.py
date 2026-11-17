@@ -6,7 +6,7 @@ import os
 import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from flask import Flask
+from flask import Flask, request
 from sqlalchemy import text
 from flask_migrate import Migrate
 from flask_cors import CORS
@@ -14,7 +14,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import config
 from app.extensions import db, jwt, limiter
-from app.utils.rbac import normalize_role
+from app.utils.rbac import is_super_admin, normalize_role
 
 SUPER_ADMIN_PHONE = '+254721143189'
 SUPER_ADMIN_PASSWORD = 'Admin@2026!'
@@ -23,6 +23,8 @@ SUPER_ADMIN_PASSWORD = 'Admin@2026!'
 from app.models import (
     Department,
     HandoverReport,
+    LeavePolicy,
+    LeaveType,
     Permission,
     Role,
     RolePermission,
@@ -30,6 +32,62 @@ from app.models import (
     User,
     UserRole,
 )
+
+
+DEFAULT_LEAVE_TYPES = [
+    ("ANNUAL", "Annual Leave", True, False, 21, 1.75, 5, 14, None, 0),
+    ("SICK", "Sick Leave", True, True, 14, 1.17, 0, 0, None, 0),
+    ("MATERNITY", "Maternity Leave", True, True, 90, 0, 0, 30, "Female", 12),
+    ("PATERNITY", "Paternity Leave", True, False, 14, 0, 0, 14, "Male", 0),
+    ("COMPASSIONATE", "Compassionate Leave", True, False, 7, 0, 0, 0, None, 0),
+    ("STUDY", "Study Leave", True, True, 10, 0, 0, 30, None, 12),
+    ("UNPAID", "Unpaid Leave", False, False, 0, 0, 0, 0, None, 0),
+]
+
+
+def ensure_default_leave_types():
+    """Ensure the default leave catalog exists so the leave form can render options."""
+    if LeaveType.query.count() > 0:
+        return
+
+    for (
+        code,
+        name,
+        is_paid,
+        requires_document,
+        default_days_per_year,
+        accrual_rate,
+        max_carryover,
+        notice_days_required,
+        gender_restriction,
+        min_service_months,
+    ) in DEFAULT_LEAVE_TYPES:
+        leave_type = LeaveType.query.filter_by(code=code).first()
+        if leave_type is None:
+            leave_type = LeaveType(
+                name=name,
+                code=code,
+                is_paid=is_paid,
+                requires_document=requires_document,
+                default_days_per_year=default_days_per_year,
+            )
+            db.session.add(leave_type)
+            db.session.flush()
+
+        if LeavePolicy.query.filter_by(leave_type_id=leave_type.id).first() is None:
+            db.session.add(
+                LeavePolicy(
+                    leave_type_id=leave_type.id,
+                    accrual_rate=accrual_rate,
+                    annual_entitlement_days=default_days_per_year,
+                    max_carryover=max_carryover,
+                    notice_days_required=notice_days_required,
+                    gender_restriction=gender_restriction,
+                    min_service_months=min_service_months,
+                )
+            )
+
+    db.session.commit()
 
 
 def create_app(config_name='default'):
@@ -67,11 +125,32 @@ def create_app(config_name='default'):
         except (TypeError, ValueError):
             return False
         user = db.session.get(User, user_id)
-        return bool(
+        is_valid = bool(
             user
             and user.is_currently_active()
             and user.account_status == "approved"
         )
+        acting_admin_id = jwt_payload.get("acting_admin_id")
+        if acting_admin_id is not None:
+            from app.api.auth import _revoked_admin_access_tokens
+
+            try:
+                acting_admin = db.session.get(User, int(acting_admin_id))
+            except (TypeError, ValueError):
+                return False
+            is_valid = bool(
+                is_valid
+                and acting_admin
+                and acting_admin.is_currently_active()
+                and acting_admin.account_status == "approved"
+                and is_super_admin(acting_admin)
+                and jwt_payload.get("jti") not in _revoked_admin_access_tokens
+                and (
+                    request.method in {"GET", "HEAD", "OPTIONS"}
+                    or request.endpoint == "auth.stop_admin_user_access"
+                )
+            )
+        return is_valid
 
     limiter.init_app(app)
     CORS(app, origins=app.config.get('CORS_ORIGINS', '*'))
@@ -92,7 +171,6 @@ def create_app(config_name='default'):
     # Register blueprints
     from app.api.auth import auth_bp
     from app.api.leave import leave_bp
-    from app.api.chat import chat_bp
     from app.api.customer_care import customer_care_bp
     from app.api.okoa_customer_care import okoa_customer_care_bp
     from app.api.admin import admin_bp
@@ -106,7 +184,6 @@ def create_app(config_name='default'):
     from app.api.debt_collection import collector_bp, debt_collection_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(leave_bp, url_prefix='/api/leave')
-    app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(customer_care_bp)
     app.register_blueprint(okoa_customer_care_bp)
     app.register_blueprint(admin_bp)
@@ -246,6 +323,12 @@ def create_app(config_name='default'):
                 default_admin.set_password(SUPER_ADMIN_PASSWORD)
             db.session.commit()
             app.logger.info('Ensured default super-admin account is canonicalized and protected')
+            try:
+                ensure_default_leave_types()
+                app.logger.info('Ensured default leave types are available for the leave request wizard.')
+            except Exception:
+                db.session.rollback()
+                app.logger.warning('Could not seed default leave types; the leave catalog remains empty until an admin configures it.')
             if (
                 not app.testing
                 and default_admin.email.strip().lower() == 'admin@okoa.local'

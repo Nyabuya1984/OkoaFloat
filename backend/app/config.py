@@ -16,11 +16,13 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     
     # Database settings. The application has exactly one supported database.
-    DB_NAME = os.environ.get('DB_NAME')
-    DB_PASSWORD = os.environ.get('DB_PASSWORD')
-    DB_USER = os.environ.get('DB_USER')
-    DB_HOST = os.environ.get('DB_HOST')
-    DB_PORT = os.environ.get('DB_PORT')
+    # Keep these defaults aligned with docker-compose.yml so local startup works
+    # even when a developer has not created backend/.env yet.
+    DB_NAME = os.environ.get('DB_NAME', 'Okoa_Float_DB')
+    DB_PASSWORD = os.environ.get('DB_PASSWORD', 'admin123')
+    DB_USER = os.environ.get('DB_USER', 'okoa_user')
+    DB_HOST = os.environ.get('DB_HOST', 'localhost')
+    DB_PORT = os.environ.get('DB_PORT', '3306')
     SQLALCHEMY_DATABASE_URI = (
         f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
     )
@@ -46,6 +48,15 @@ class Config:
     ONFON_API_KEY = os.environ.get("ONFON_API_KEY")
     ONFON_CLIENT_ID = os.environ.get("ONFON_CLIENT_ID")
     ONFON_SENDER_ID = os.environ.get("ONFON_SENDER_ID") or "OkoaFloat"
+
+    # SMTP settings for OTP email fallback.
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER")
+    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() in ("true", "1", "yes")
+    MAIL_USE_SSL = os.environ.get("MAIL_USE_SSL", "false").lower() in ("true", "1", "yes")
     
     # CORS settings
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*')

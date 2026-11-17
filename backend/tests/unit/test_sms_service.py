@@ -124,10 +124,12 @@ def test_send_sms_network_error(monkeypatch):
 
 def test_otp_messages():
     msg = _otp_generated_message("verification", sms_sent=True)
-    assert "sent to your phone number" in msg
+    assert "accepted your 6-digit verification code request" in msg
+    assert "Delivery to your phone is not confirmed" in msg
 
     msg_masked = _otp_generated_message("verification", sms_sent=True, phone_number="+254712345678")
-    assert "sent to your phone number ending in ...5678" in msg_masked
+    assert "phone number ending in ...5678" in msg_masked
+    assert "Delivery to your phone is not confirmed" in msg_masked
 
     msg_dev = _otp_generated_message("verification", sms_sent=False)
     assert "couldn't send" in msg_dev

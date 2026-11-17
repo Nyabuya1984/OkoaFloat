@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, Menu, Moon, Search, Sun } from 'react-feather';
+import { ChevronDown, Menu, Moon, Search, Sun } from 'react-feather';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { accessibleNavSections, getUserDesignation, isSuperAdminUser } from '../navigation';
 
@@ -43,8 +43,6 @@ const Topbar = ({ currentUser, onMenu, onLogout, onOpenProfile, darkMode, onTogg
     navigate(path);
   };
 
-  const unreadCount = Number(currentUser?.unread_chat_count || 0);
-
   return <header className="app-topbar">
     <div className="topbar-left">
       <button className="menu-toggle" onClick={onMenu} aria-label="Open navigation">
@@ -66,12 +64,6 @@ const Topbar = ({ currentUser, onMenu, onLogout, onOpenProfile, darkMode, onTogg
         <span>Search</span>
         <kbd>⌘K</kbd>
       </button>
-
-      <button className="icon-button has-badge" onClick={() => navigate('/dashboard/chat')} aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}>
-        <Bell size={18} />
-        {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
-      </button>
-
       <button className="icon-button" onClick={onToggleTheme} aria-label={darkMode ? 'Use light theme' : 'Use dark theme'}>
         {darkMode ? <Sun size={18} /> : <Moon size={18} />}
       </button>

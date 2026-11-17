@@ -1,8 +1,11 @@
 import re
 from datetime import datetime, timedelta
 
+from flask_jwt_extended import create_access_token
+
 from app.api.auth import _hash_otp
 from app.models import OtpChallenge, User
+from app.services.otp_email import send_otp_email
 
 
 def _latest_code(session, phone_number, purpose):
@@ -31,6 +34,7 @@ def test_registration_otp_uses_one_official_email_for_confirmation(
         },
     )
     assert response.status_code == 201, response.get_json()
+    assert response.get_json()["sms_sent"] is False
     assert "database and development console" in response.get_json()["message"]
 
     user = session.query(User).filter_by(phone_number="+254712300001").one()
@@ -61,7 +65,8 @@ def test_login_otp_is_stored_and_single_use(client, session, caplog):
         json={"phone_number": "+254721143189", "password": "Admin@2026!"},
     )
     assert response.status_code == 200, response.get_json()
-    assert "email_sent" not in response.get_json()
+    assert response.get_json()["sms_sent"] is False
+    assert response.get_json()["email_sent"] is False
     assert "database and development console" in response.get_json()["message"]
     challenge = session.query(OtpChallenge).filter_by(
         phone_number="+254721143189", purpose="login"
@@ -88,6 +93,50 @@ def test_login_otp_is_stored_and_single_use(client, session, caplog):
         .count()
         == 0
     )
+
+
+def test_otp_email_is_sent_via_configured_smtp(client, monkeypatch):
+    sent = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            sent["connection"] = (host, port, timeout)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def starttls(self, context):
+            sent["tls"] = context
+
+        def login(self, username, password):
+            sent["login"] = (username, password)
+
+        def send_message(self, message):
+            sent["message"] = message
+
+    monkeypatch.setattr("app.services.otp_email.smtplib.SMTP", FakeSMTP)
+    client.application.config.update(
+        MAIL_SERVER="smtp.example.test",
+        MAIL_PORT=587,
+        MAIL_USERNAME="sender@example.test",
+        MAIL_PASSWORD="smtp-password",
+        MAIL_DEFAULT_SENDER="Okoa Float <sender@example.test>",
+        MAIL_USE_TLS=True,
+        MAIL_USE_SSL=False,
+    )
+
+    with client.application.app_context():
+        sent_ok, error = send_otp_email("user@example.test", "123456", "login")
+
+    assert sent_ok is True
+    assert error is None
+    assert sent["connection"] == ("smtp.example.test", 587, 12)
+    assert sent["login"] == ("sender@example.test", "smtp-password")
+    assert sent["message"]["To"] == "user@example.test"
+    assert "123456" in sent["message"].get_content()
 
 
 def test_password_and_phone_recovery_use_database_otp(client, session):
@@ -161,17 +210,20 @@ def test_fifth_incorrect_code_invalidates_challenge(client, session):
 
 
 def test_admin_created_user_uses_one_official_email_and_assigns_hierarchy(
-    client, admin_token, session
+    client, session
 ):
+    admin = session.query(User).filter_by(phone_number="+254721143189").one()
+    with client.application.app_context():
+        admin_token = create_access_token(identity=str(admin.id))
     response = client.post(
         "/api/auth/admin/users",
-        headers={"Authorization": f"******"},
+        headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "full_name": "Admin Created User",
             "official_email": "created@example.com",
             "phone_number": "+254712300002",
             "password": "Password@2026",
-            "department": "General Management",
+            "department": "All",
             "organizational_role": "general_manager",
         },
     )
@@ -179,6 +231,13 @@ def test_admin_created_user_uses_one_official_email_and_assigns_hierarchy(
     user = session.query(User).filter_by(email="created@example.com").one()
     assert user.personal_email == "created@example.com"
     assert response.get_json()["data"]["official_email"] == "created@example.com"
+    assert response.get_json()["verification_required"] is True
+    assert (
+        session.query(OtpChallenge)
+        .filter_by(user_id=user.id, purpose="registration")
+        .count()
+        == 1
+    )
 
 
 def test_otp_expires_after_ten_minutes(client, session):

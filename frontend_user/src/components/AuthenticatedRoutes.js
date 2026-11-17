@@ -34,7 +34,7 @@ import {
   LiveLocationDashboard,
 } from './OrganizationPages';
 
-const ShellRoute = ({ currentUser, onLogout, children }) => {
+const ShellRoute = ({ currentUser, onLogout, children, rolePreview, canPreviewRole, onRolePreviewChange, onClearRolePreview, onStartUserAccess, onStopUserAccess, canAccessUserAccounts }) => {
   const [dashboardFeatures, setDashboardFeatures] = useState(() => ({
     sales_reports: isGeneralManagerUser(currentUser),
     debt_collection: isGeneralManagerUser(currentUser),
@@ -43,6 +43,8 @@ const ShellRoute = ({ currentUser, onLogout, children }) => {
   const [featureError, setFeatureError] = useState('');
   const [activeAssignment, setActiveAssignment] = useState(null);
   const [assignmentError, setAssignmentError] = useState('');
+  const [departmentPages, setDepartmentPages] = useState(null);
+  const [departmentPagesError, setDepartmentPagesError] = useState('');
   const isGeneralManager = isGeneralManagerUser(currentUser);
 
   useEffect(() => {
@@ -82,32 +84,67 @@ const ShellRoute = ({ currentUser, onLogout, children }) => {
 
   useEffect(() => {
     let active = true;
+    const refreshDepartmentPages = (assignment) => {
+      const request = isGeneralManagerUser(currentUser, assignment)
+        ? organizationApi.getDepartments().then((rows) => ({
+          pages: rows.flatMap((department) => Array.isArray(department.pages) ? department.pages : []),
+        }))
+        : organizationApi.getMyDepartmentPages();
+      request
+        .then((result) => {
+          if (active) {
+            setDepartmentPages(Array.isArray(result?.pages) ? result.pages : []);
+            setDepartmentPagesError('');
+          }
+        })
+        .catch((error) => {
+          if (active) setDepartmentPagesError(error.message || 'Unable to load department pages.');
+        });
+    };
     const refreshAssignment = () => organizationApi.getMyAssignment()
       .then((assignment) => {
         if (active) {
           setActiveAssignment(assignment);
           setAssignmentError('');
+          refreshDepartmentPages(assignment);
         }
       })
       .catch((error) => {
-        if (active) setAssignmentError(error.message || 'Unable to load active department access.');
+        if (active) {
+          setAssignmentError(error.message || 'Unable to load active department access.');
+          refreshDepartmentPages(null);
+        }
       });
     refreshAssignment();
     window.addEventListener('focus', refreshAssignment);
+    window.addEventListener('departments-updated', refreshAssignment);
     return () => {
       active = false;
       window.removeEventListener('focus', refreshAssignment);
+      window.removeEventListener('departments-updated', refreshAssignment);
     };
-  }, []);
+  }, [currentUser]);
+
+  const resolvedAssignment = resolveActiveAssignment(currentUser, activeAssignment);
+  const assignmentWithDepartmentPages = resolvedAssignment
+    ? { ...resolvedAssignment, department_pages: departmentPages ?? resolvedAssignment.department_pages }
+    : resolvedAssignment;
 
   return (
     <AppShell
-      currentUser={{ ...currentUser, active_assignment: resolveActiveAssignment(currentUser, activeAssignment) }}
+      currentUser={{ ...currentUser, department_pages: departmentPages, active_assignment: assignmentWithDepartmentPages }}
       onLogout={onLogout}
       dashboardFeatures={dashboardFeatures}
-      featureError={featureError || assignmentError}
+      featureError={featureError || assignmentError || departmentPagesError}
+      rolePreview={rolePreview}
+      canPreviewRole={canPreviewRole}
+      onRolePreviewChange={onRolePreviewChange}
+      onClearRolePreview={onClearRolePreview}
+      canAccessUserAccounts={canAccessUserAccounts}
+      onStartUserAccess={onStartUserAccess}
+      onStopUserAccess={onStopUserAccess}
     >
-      {children || <Outlet context={{ dashboardFeatures, setDashboardFeatures, activeAssignment }} />}
+      {children || <Outlet context={{ dashboardFeatures, setDashboardFeatures, activeAssignment: assignmentWithDepartmentPages }} />}
     </AppShell>
   );
 };
@@ -118,6 +155,13 @@ export const RolePageRoute = ({ currentUser, onUserUpdated, handleLogout, page, 
   const role = normalizeRole(currentUser?.role);
   const elevated = isSuperAdminUser(role, currentUser?.is_superuser === true);
   const isGeneralManager = isGeneralManagerUser(currentUser, assignment);
+  const departmentPages = Array.isArray(assignment?.department_pages)
+    ? assignment.department_pages
+    : Array.isArray(currentUser?.department_pages)
+      ? currentUser.department_pages
+      : [];
+  const hasDepartmentPageAccess = departmentPages.includes(page)
+    || (page === 'client-registration' && departmentPages.includes('sales-reports'));
   const effectiveRoles = effectiveOrganizationalRoles(assignment);
   const requiredFeature = page === 'sales-reports'
     ? 'sales_reports'
@@ -131,11 +175,13 @@ export const RolePageRoute = ({ currentUser, onUserUpdated, handleLogout, page, 
   const hasAccess = roles.includes(role)
     || organizationalRoles.some((position) => effectiveRoles.includes(position))
     || (isGeneralManager && GENERAL_MANAGER_PAGES.has(page))
+    || hasDepartmentPageAccess
     || (elevated && roles.some((allowedRole) => [ROLES.SYSTEM_ADMIN, ROLES.SUPER_ADMIN, ROLES.HR].includes(allowedRole)))
     || (page === 'dashboard' && roles.includes(ROLES.EMPLOYEE) && roles.includes(ROLES.SUPER_ADMIN));
 
   if (
     requiredFeature
+    && !hasDepartmentPageAccess
     && !canAccessDashboardFeature(currentUser, requiredFeature, dashboardFeatures, assignment)
   ) {
     return <Navigate to="/dashboard" replace />;
@@ -195,11 +241,11 @@ const pageRouteComponents = new Map(dashboardRouteItems.map(({ path, page, roles
   return [path, DashboardRoutePage];
 }));
 
-const AuthenticatedRoutes = ({ currentUser, onUserUpdated, handleLogout }) => (
+const AuthenticatedRoutes = ({ currentUser, onUserUpdated, handleLogout, rolePreview, canPreviewRole, onRolePreviewChange, onClearRolePreview, onStartUserAccess, onStopUserAccess, canAccessUserAccounts }) => (
   <Routes>
     <Route path="/403" element={<Navigate to="/dashboard" replace />} />
     <Route element={<ProtectedRoute currentUser={currentUser} />}>
-      <Route element={<ShellRoute currentUser={currentUser} onLogout={handleLogout} />}>
+      <Route element={<ShellRoute currentUser={currentUser} onLogout={handleLogout} rolePreview={rolePreview} canPreviewRole={canPreviewRole} onRolePreviewChange={onRolePreviewChange} onClearRolePreview={onClearRolePreview} onStartUserAccess={onStartUserAccess} onStopUserAccess={onStopUserAccess} canAccessUserAccounts={canAccessUserAccounts} />}>
         {dashboardRouteItems.map(({ path }) => {
           const PageRoute = pageRouteComponents.get(path);
           return (

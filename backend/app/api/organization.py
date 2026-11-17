@@ -50,6 +50,7 @@ from app.utils.location_tracking import (
     tracking_state_for_scope,
     tracking_states_for_agents,
 )
+from app.utils.department_pages import department_pages_for
 from app.utils.rbac import is_hr_admin, is_system_admin
 
 
@@ -143,7 +144,40 @@ def list_departments():
         return _error("Active user not found", 403, "FORBIDDEN")
     departments = Department.query.order_by(Department.name.asc()).all()
     return jsonify({
-        "data": [{"id": dept.id, "name": dept.name} for dept in departments],
+        "data": [{
+            "id": dept.id,
+            "name": dept.name,
+            "pages": department_pages_for(dept.id, dept.name),
+        } for dept in departments],
+        "error": None,
+    })
+
+
+@organization_bp.get("/department-pages/me")
+@jwt_required()
+def current_department_pages():
+    actor = _actor()
+    if not actor or not actor.is_currently_active() or actor.account_status != "approved":
+        return _error("Active, approved account required", 403, "FORBIDDEN")
+
+    assignment = get_active_assignment(actor.id)
+    department_id = (
+        assignment.department_id
+        if assignment and assignment.department_id is not None
+        else actor.department_id
+    )
+    department = db.session.get(Department, department_id) if department_id else None
+    department_name = (
+        department.name
+        if department
+        else assignment.department_name if assignment else actor.department
+    )
+    return jsonify({
+        "data": {
+            "department_id": department_id,
+            "department_name": department_name,
+            "pages": department_pages_for(department_id, department_name),
+        },
         "error": None,
     })
 

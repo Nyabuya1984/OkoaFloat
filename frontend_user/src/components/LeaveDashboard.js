@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   cancelLeaveRequest,
   createLeaveRequest,
@@ -9,11 +9,10 @@ import {
   getLeaveOverview,
   getPendingLeaveRequests,
   getTeamCalendar,
+  getHandoverUsers,
   remindHandoverDelegate,
 } from '../services/leaveApi';
 import { deleteProfilePhoto, updateProfile, uploadProfilePhoto } from '../services/profileApi';
-import { getChatMessages, getChatUsers, getUnreadChatCount, markChatMessagesRead, sendChatMessage } from '../services/chatApi';
-import { getManagerChatPeers } from '../services/leaveChatUtils';
 import './LeaveDashboard.css';
 import HandoverAcceptance from './HandoverAcceptance';
 import HandoverReportForm from './HandoverReportForm';
@@ -76,7 +75,6 @@ const pagePaths = {
   'my-leave': '/dashboard/leave',
   history: '/dashboard/history',
   delegations: '/dashboard/handover',
-  chat: '/dashboard/chat',
   approvals: '/dashboard/leave/approvals',
   'team-calendar': '/dashboard/calendar',
   calendar: '/dashboard/calendar',
@@ -135,7 +133,6 @@ const workflowLabel = (request) => ({
 const workflowStatusClass = (request) => statusClass(request.workflow_state || request.status);
 
 const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handleLogout }) => {
-  const location = useLocation();
   const navigate = useNavigate();
   const { dashboardFeatures, setDashboardFeatures } = useOutletContext();
   const [overview, setOverview] = useState({ types: [], balances: [], requests: [] });
@@ -153,15 +150,7 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
   const [showProfile, setShowProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({});
   const [profilePhoto, setProfilePhoto] = useState('');
-  const [chatUsers, setChatUsers] = useState([]);
-  const [chatPeer, setChatPeer] = useState(() => String(location.state?.chatPeer || ''));
-  const [chatTarget, setChatTarget] = useState(() => location.state?.chatTarget || null);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatBody, setChatBody] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatError, setChatError] = useState('');
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const [showChat, setShowChat] = useState(false);
+  const [handoverUsers, setHandoverUsers] = useState([]);
   const activeSection = 'dashboard';
   const [decisionDialog, setDecisionDialog] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
@@ -338,10 +327,8 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
       if (page === 'delegations') {
         setDelegations((await getDelegations()).data || []);
       }
-      if (['apply-leave', 'delegations'].includes(page)) {
-        const peers = await getChatUsers();
-        setChatUsers(peers.data || []);
-        if (!chatPeer && peers.data?.[0]) setChatPeer(String(peers.data[0].id));
+      if (page === 'apply-leave') {
+        setHandoverUsers((await getHandoverUsers()).data || []);
       }
       if (['approvals', 'hr-verification'].includes(page)) {
         setPendingRequests((await getPendingLeaveRequests()).data || []);
@@ -358,10 +345,6 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
         if (!response.ok) throw new Error(payload.error?.message || 'Unable to load sales reports.');
         setSalesReports(payload.data || []);
       }
-      if (page === 'chat') {
-        const unread = await getUnreadChatCount();
-        setUnreadChatCount(Number(unread.data?.count || 0));
-      }
       if (['admin', 'employees', 'departments', 'dashboard-settings', 'hr-module'].includes(page)) {
         await loadRouteAdminData(page);
       }
@@ -377,22 +360,18 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
     setLoading(true);
     setMessage(null);
     try {
-      const [data, chatData, historyData, delegationData] = await Promise.all([
+      const [data, handoverData, historyData, delegationData] = await Promise.all([
         getLeaveOverview(),
-        getChatUsers().catch(() => ({ data: [] })),
+        getHandoverUsers().catch(() => ({ data: [] })),
         getLeaveHistory(),
         getDelegations(),
       ]);
       setOverview(data);
       setHistoryRequests(historyData.data || []);
       setDelegations(delegationData.data || []);
-      setChatUsers(chatData.data || []);
+      setHandoverUsers(handoverData.data || []);
       if (canApprove || isSalesEmployee) {
         fetch(apiUrl('/api/sales/reports'), { headers: { Authorization: `Bearer ${getAuthToken()}` } }).then((response) => readJsonResponse(response, 'The server responded unexpectedly.')).then((payload) => setSalesReports(payload.data || [])).catch(() => {});
-      }
-      getUnreadChatCount().then((unread) => setUnreadChatCount(Number(unread.data?.count || 0))).catch(() => {});
-      if (!chatPeer && (chatData.data || []).length > 0) {
-        setChatPeer(String((chatData.data || [])[0].id));
       }
       if (canApprove) {
         try {
@@ -921,14 +900,6 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
   // Load only the resource set required by this route.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData(); }, [page]);
-  useEffect(() => {
-    if (page !== 'chat') return undefined;
-    const refreshUnreadCount = () => getUnreadChatCount().then((data) => setUnreadChatCount(Number(data.data?.count || 0))).catch(() => {});
-    refreshUnreadCount();
-    const timer = window.setInterval(refreshUnreadCount, 10000);
-    return () => window.clearInterval(timer);
-  }, [page]);
-  useEffect(() => { setShowChat(page === 'chat'); }, [page]);
 
   const updateForm = (event) => {
     const { name, value } = event.target;
@@ -997,49 +968,6 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
     });
     setProfilePhoto(currentUser.profile_photo_url || '');
   }, [page, currentUser]);
-
-  const loadChat = async () => {
-    setChatLoading(true);
-    setChatError('');
-    try {
-      const users = await getChatUsers();
-      const allUsers = users.data || [];
-      const targetUsers = getManagerChatPeers(allUsers, chatTarget);
-      setChatUsers(targetUsers);
-      if (!chatPeer && targetUsers.length === 1) setChatPeer(String(targetUsers[0].id));
-      else if (!chatPeer && !chatTarget && targetUsers[0]) setChatPeer(String(targetUsers[0].id));
-      if (chatTarget?.role === 'manager' && targetUsers.length === 0) {
-        setChatError('No active manager is assigned to this department. Contact your administrator to assign one.');
-      }
-    } catch (error) { setChatError(error.message); }
-    finally { setChatLoading(false); }
-  };
-
-  // Reload peers when the conversation target changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (showChat) loadChat(); }, [showChat, chatTarget]);
-  useEffect(() => {
-    if (!showChat || !chatPeer) return undefined;
-    setChatLoading(true);
-    Promise.all([getChatMessages(chatPeer), markChatMessagesRead(Number(chatPeer))]).then(([data]) => {
-      setChatMessages(data.data || []);
-      getUnreadChatCount().then((unread) => setUnreadChatCount(Number(unread.data?.count || 0))).catch(() => {});
-      setChatError('');
-    }).catch((error) => setChatError(error.message)).finally(() => setChatLoading(false));
-    return undefined;
-  }, [showChat, chatPeer, currentUser.id]);
-
-  const submitChat = async (event) => {
-    event.preventDefault();
-    if (!chatBody.trim() || !chatPeer) return;
-    try {
-      setChatError('');
-      await sendChatMessage(Number(chatPeer), chatBody.trim());
-      setChatBody('');
-      const data = await getChatMessages(chatPeer);
-      setChatMessages(data.data || []);
-    } catch (error) { setChatError(error.message); }
-  };
 
   const submitRequest = async (event) => {
     event.preventDefault();
@@ -1126,62 +1054,6 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
 
   const openRequestView = (request, view) => setRequestView({ request, view });
 
-  const openRequestChat = (request) => {
-    const isEmployeeRequest = currentUser.id === request.user_id;
-    let peerId = null;
-    if (isEmployeeRequest) {
-      peerId = request.handover_user_id || request.manager_id || request.supervisor_id;
-    } else {
-      peerId = request.user_id;
-    }
-    if (!peerId) {
-      setMessage({ type: 'error', text: 'No chat participant is available for this request.' });
-      return;
-    }
-    navigate('/dashboard/chat', { state: { chatPeer: String(peerId) } });
-  };
-
-  const getChatStage = (request) => {
-    const state = String(request?.workflow_state || '').trim().toLowerCase();
-    if (state === 'handover_pending') return 'delegate';
-    if (['team_leader_pending', 'department_manager_pending', 'general_manager_pending'].includes(state)
-    ) return 'manager';
-    return null;
-  };
-
-  const getChatPeerForStatus = (request) => {
-    const stage = getChatStage(request);
-    if (stage === 'delegate') return request.handover_user_id;
-    if (stage === 'manager') return request.pending_approver_id || request.manager_id || request.approver_id;
-    return null;
-  };
-
-  const openStatusChat = (request) => {
-    const stage = getChatStage(request);
-    if (stage === 'delegate') {
-      const peerId = getChatPeerForStatus(request);
-      if (!peerId || Number(peerId) === Number(currentUser?.id)) {
-        setMessage({ type: 'error', text: 'No delegate is assigned for this request yet.' });
-        return;
-      }
-      navigate('/dashboard/chat', { state: { chatPeer: String(peerId) } });
-      return;
-    }
-
-    if (stage !== 'manager') return;
-    const peerId = getChatPeerForStatus(request);
-    navigate('/dashboard/chat', {
-      state: {
-        chatTarget: {
-          role: 'manager',
-          department: request.department_name,
-          departmentId: request.department_id,
-          peerId: peerId && Number(peerId) !== Number(currentUser?.id) ? Number(peerId) : null,
-        },
-      },
-    });
-  };
-
   const chaseDelegate = async (request) => {
     try {
       const response = await remindHandoverDelegate(request.id);
@@ -1260,7 +1132,6 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
       'my-leave': 'My leave',
       history: 'Leave history',
       delegations: 'Handover reports',
-      chat: 'Team chat',
       approvals: 'Leave approvals',
       'hr-verification': 'HR verification',
       calendar: 'Team calendar',
@@ -1333,7 +1204,7 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
           </>
         )}
 
-        {!loading && page === 'apply-leave' && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} balances={overview.balances} colleagues={chatUsers} onClose={() => openPage('dashboard')} onViewRequests={() => openPage('my-leave')} />}
+        {!loading && page === 'apply-leave' && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} balances={overview.balances} colleagues={handoverUsers} onClose={() => openPage('dashboard')} onViewRequests={() => openPage('my-leave')} />}
 
         {!loading && page === 'my-leave' && (
           <>
@@ -1344,9 +1215,9 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
 
         {!loading && page === 'history' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">RECORDS</p><h2>Leave history</h2></div></div>{renderLeaveRequests(historyRequests)}</section>}
 
-        {!loading && page === 'delegations' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover reports assigned to you</h2></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <article className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)}</strong><p>{request.handover_statement || 'Briefing pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>Chat requester</button></div></div>{request.handover_statement ? <HandoverReportForm requestId={request.id} readOnly /> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</article>)}</section>}
+        {!loading && page === 'delegations' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover reports assigned to you</h2></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <article className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)}</strong><p>{request.handover_statement || 'Briefing pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button></div></div>{request.handover_statement ? <HandoverReportForm requestId={request.id} readOnly /> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</article>)}</section>}
 
-        {!loading && ['approvals', 'hr-verification'].includes(page) && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>{pageTitle}</h2></div><span className="section-meta">{pendingRequests.length} pending</span></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`page-approval-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
+        {!loading && ['approvals', 'hr-verification'].includes(page) && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>{pageTitle}</h2></div><span className="section-meta">{pendingRequests.length} pending</span></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`page-approval-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView}  onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
 
         {!loading && page === 'calendar' && <TeamCalendarSection calendarDate={calendarDate} calendarDays={calendarDays} calendarOffset={calendarOffset} calendarRequestsForDay={calendarRequestsForDay} selectedCalendarDate={selectedCalendarDate} setSelectedCalendarDate={setSelectedCalendarDate} selectedCalendarEvents={selectedCalendarEvents} setCalendarMonth={setCalendarMonth} openRequestView={openRequestView} leaveTypeName={leaveTypeName} formatDate={formatDate} workflowLabel={workflowLabel} currentUser={currentUser} />}
 
@@ -1492,10 +1363,103 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
           </section>
         </>}
 
-        {!loading && page === 'profile' && <section className="leave-section"><div className="leave-section-heading"><div><p className="leave-kicker">YOUR DETAILS</p><h2>Edit profile</h2></div></div><form onSubmit={saveProfile}><label>Profile photo<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={changeProfilePhoto} /><span className="leave-helper">JPG, PNG, GIF, or WEBP up to 5 MB.</span></label>{profilePhoto && <button type="button" className="leave-text-button" onClick={removeProfilePhoto}>Remove photo</button>}<div className="leave-form-row">{[['employee_name', 'Employee name'], ['job_position_title', 'Job position title']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><div className="leave-form-row">{[['employer', 'Employer'], ['department', 'Department']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><fieldset className="leave-fieldset"><legend>Contact and address</legend><div className="leave-form-row">{[['contact_phone', 'Phone'], ['contact_email', 'Email']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div><div className="leave-form-row">{[['address_line1', 'Address'], ['address_line2', 'Address line 2'], ['city', 'City'], ['country', 'Country'], ['postal_code', 'Postal code']].map(([name, label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div></fieldset><div className="leave-modal-actions"><button type="submit" className="leave-primary-button">Save profile</button></div></form></section>}
+        {!loading && page === 'profile' && (
+          <section className="leave-section profile-edit-page" aria-labelledby="profile-edit-title">
+            <div className="profile-edit-heading">
+              <div>
+                <p className="leave-kicker">YOUR DETAILS</p>
+                <h2 id="profile-edit-title">Edit profile</h2>
+                <p>Keep your contact and employment information up to date.</p>
+              </div>
+            </div>
+            <form className="profile-edit-form" onSubmit={saveProfile}>
+              <div className="profile-edit-identity">
+                <div className="profile-edit-avatar" aria-label="Profile photo preview">
+                  {profilePhoto
+                    ? <img src={profilePhoto} alt={`${profileForm.employee_name || 'Your'} profile`} />
+                    : <span>{(profileForm.employee_name || 'E').trim().charAt(0).toUpperCase()}</span>}
+                </div>
+                <div className="profile-edit-photo-details">
+                  <strong>{profileForm.employee_name || currentUser?.name || 'Your profile'}</strong>
+                  <span>{profileForm.job_position_title || 'Add your job title'}</span>
+                  <label className="profile-photo-upload">
+                    <span>{profilePhoto ? 'Change photo' : 'Add a profile photo'}</span>
+                    <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={changeProfilePhoto} />
+                  </label>
+                  <small>JPG, PNG, GIF, or WEBP up to 5 MB.</small>
+                  {profilePhoto && <button type="button" className="leave-text-button" onClick={removeProfilePhoto}>Remove photo</button>}
+                </div>
+              </div>
 
-        {!loading && page === 'chat' && <section className="leave-section chat-page"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM CHAT</p><h2>Messages</h2></div></div>{chatTarget?.role === 'manager' && <p className="leave-muted">Choose a manager for {chatTarget.department || 'your department'}.</p>}<label>{chatTarget?.role === 'manager' ? 'Manager' : 'Chat with'}<select value={chatPeer} onChange={(event) => setChatPeer(event.target.value)}><option value="">{chatTarget?.role === 'manager' ? 'Select a manager' : 'Select a colleague'}</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{chatError && <div className="leave-alert error chat-error" role="alert">{chatError}<button type="button" className="leave-text-button" onClick={loadChat}>Try again</button></div>}<div className="chat-messages" aria-live="polite">{chatLoading ? <p className="leave-empty">Loading messages...</p> : chatMessages.length === 0 ? <p className="leave-empty">No messages yet. Start the conversation below.</p> : chatMessages.map((item) => <div className={`chat-message ${item.sender_id === currentUser.id ? 'mine' : ''}`} key={item.id}><span>{item.sender_name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>{item.body}</p></div>)}</div><form className="chat-compose" onSubmit={submitChat}><input value={chatBody} onChange={(event) => setChatBody(event.target.value)} placeholder="Write a message" maxLength="2000" disabled={!chatPeer || chatLoading} /><button className="leave-primary-button" type="submit" disabled={!chatPeer || !chatBody.trim() || chatLoading}>Send</button></form></section>}
+              <fieldset className="leave-fieldset profile-edit-fieldset">
+                <legend>Employment</legend>
+                <div className="leave-form-row">
+                  {[
+                    ['employee_name', 'Employee name'],
+                    ['job_position_title', 'Job position title'],
+                    ['employer', 'Employer'],
+                    ['department', 'Department'],
+                  ].map(([name, label]) => (
+                    <label key={name}>
+                      {label}
+                      <input
+                        name={name}
+                        value={profileForm[name] || ''}
+                        onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })}
+                        required
+                      />
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
+              <fieldset className="leave-fieldset profile-edit-fieldset">
+                <legend>Contact</legend>
+                <div className="leave-form-row">
+                  {[
+                    ['contact_phone', 'Phone'],
+                    ['contact_email', 'Email'],
+                  ].map(([name, label]) => (
+                    <label key={name}>
+                      {label}
+                      <input
+                        name={name}
+                        value={profileForm[name] || ''}
+                        onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="leave-fieldset profile-edit-fieldset">
+                <legend>Address</legend>
+                <div className="leave-form-row">
+                  {[
+                    ['address_line1', 'Address'],
+                    ['address_line2', 'Address line 2'],
+                    ['city', 'City'],
+                    ['country', 'Country'],
+                    ['postal_code', 'Postal code'],
+                  ].map(([name, label]) => (
+                    <label key={name}>
+                      {label}
+                      <input
+                        name={name}
+                        value={profileForm[name] || ''}
+                        onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="profile-edit-actions">
+                <button type="submit" className="leave-primary-button">Save profile</button>
+              </div>
+            </form>
+          </section>
+        )}
         {requestView && <section className="leave-section"><h2>Leave request #{requestView.request.id}</h2><p>{requestView.request.requester_name || currentUser.name} · {leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</p><p>{requestView.request.reason || requestView.request.handover_statement || 'Request details'}</p><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close details</button></section>}
         {decisionDialog && <section className="leave-section"><h2>Complete approval</h2><p>Decision: {decisionDialog.decision}</p><label>Comment<textarea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></label><label>Supervisor signature<input value={decisionSignature} onChange={(event) => setDecisionSignature(event.target.value)} /></label><div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setDecisionDialog(null)}>Cancel</button><button type="button" className="leave-primary-button" onClick={submitDecision}>Confirm</button></div></section>}
       </main>
@@ -1525,14 +1489,13 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
         {message && <div className={`leave-alert ${message.type}`} role="status">{message.text}</div>}
         {canAccessSalesReports && <SalesV2DashboardWidgets currentUser={currentUser} onViewReport={() => openSalesReports('sales-reports')} onOpenWorkspace={() => openSalesReports('sales-reports')} onViewDetail={() => openSalesReports('sales-reports')} />}
         {canAccessDebtCollection && isSuperAdmin && activeSection === 'dashboard' && <DebtCollectionPage compact />}
-        {unreadChatCount > 0 && <div className="leave-alert info chat-notification" role="status"><strong>New message{unreadChatCount === 1 ? '' : 's'} waiting.</strong><button type="button" className="leave-text-button" onClick={() => setShowChat(true)}>Open chat ({unreadChatCount})</button></div>}
         {isSuperAdmin && <TeamCalendarSection calendarDate={calendarDate} calendarDays={calendarDays} calendarOffset={calendarOffset} calendarRequestsForDay={calendarRequestsForDay} selectedCalendarDate={selectedCalendarDate} setSelectedCalendarDate={setSelectedCalendarDate} selectedCalendarEvents={selectedCalendarEvents} setCalendarMonth={setCalendarMonth} openRequestView={openRequestView} leaveTypeName={leaveTypeName} formatDate={formatDate} workflowLabel={workflowLabel} currentUser={currentUser} />}
 
         {isSuperAdmin && (
           <section className="super-admin-panel" id="dashboard" aria-label="System administration">
             <section className="admin-card" id="pending-leave-approvals">
               <div className="leave-section-heading"><div><p className="leave-kicker">LEAVE WORKFLOW</p><h3>Pending Leave Approvals</h3><p className="leave-muted">Review every pending leave request across the organization.</p></div><span className="section-meta">{pendingRequests.length} pending</span></div>
-              <div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No pending leave approvals.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`super-pending-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div>
+              <div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No pending leave approvals.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`super-pending-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView}  onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div>
             </section>
 
             <div className="admin-grid">
@@ -1776,7 +1739,7 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
             <section className="leave-section" id="requests">
               <div className="leave-section-heading"><div><p className="leave-kicker">TIME AWAY</p><h2>My leave requests</h2></div></div>
               <div className="leave-table-wrap">
-                {overview.requests.length === 0 ? <p className="leave-empty">You have not submitted any leave requests.</p> : <table className="leave-table"><thead><tr><th>Department</th><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th><th>Actions</th></tr></thead><tbody>{overview.requests.map((request) => { const chatStage = getChatStage(request); return <tr key={request.id}><td>{request.department_name || 'Unassigned'}</td><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.status === 'pending' && <button type="button" className="leave-text-button" onClick={() => cancelRequest(request.id)}>Cancel</button>}{Number(request.days_requested) > 2 && <button type="button" className="leave-text-button" onClick={() => setOpenHandoverId(openHandoverId === request.id ? null : request.id)}>{openHandoverId === request.id ? 'Hide handover' : 'Handover report'}</button>}{chatStage && <button type="button" className="leave-text-button leave-request-chat-button" onClick={() => openStatusChat(request)}>Chat {chatStage}</button>}</td></tr>; })}</tbody></table>}
+                {overview.requests.length === 0 ? <p className="leave-empty">You have not submitted any leave requests.</p> : <table className="leave-table"><thead><tr><th>Department</th><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th><th>Actions</th></tr></thead><tbody>{overview.requests.map((request) => {  return <tr key={request.id}><td>{request.department_name || 'Unassigned'}</td><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.status === 'pending' && <button type="button" className="leave-text-button" onClick={() => cancelRequest(request.id)}>Cancel</button>}{Number(request.days_requested) > 2 && <button type="button" className="leave-text-button" onClick={() => setOpenHandoverId(openHandoverId === request.id ? null : request.id)}>{openHandoverId === request.id ? 'Hide handover' : 'Handover report'}</button>}</td></tr>; })}</tbody></table>}
               </div>
               {overview.requests.filter((request) => request.id === openHandoverId).map((request) => <HandoverReportForm key={request.id} requestId={request.id} onClose={() => setOpenHandoverId(null)} onSubmitted={() => { setMessage({ type: 'success', text: 'Handover report submitted.' }); loadData(); }} />)}
             </section>
@@ -1784,7 +1747,7 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
             <section className="leave-section" id="history">
               <div className="leave-section-heading"><div><p className="leave-kicker">RECORDS</p><h2>Leave history</h2><p className="leave-muted">A complete record of your submitted leave requests.</p></div></div>
               <div className="leave-table-wrap">
-                {historyRequests.length === 0 ? <p className="leave-empty">Your leave history is empty.</p> : <table className="leave-table"><thead><tr><th>Leave type</th><th>Applied</th><th>Dates</th><th>Days</th><th>Status</th><th>Decision</th><th>Actions</th></tr></thead><tbody>{historyRequests.map((request) => { const chatStage = getChatStage(request); return <tr key={`history-${request.id}`}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{request.applied_at ? new Date(request.applied_at).toLocaleDateString() : '-'}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.decision_comment || (request.decided_at ? new Date(request.decided_at).toLocaleDateString() : 'Pending')}</td><td>{chatStage && <button type="button" className="leave-text-button leave-request-chat-button" onClick={() => openStatusChat(request)}>Chat {chatStage}</button>}</td></tr>; })}</tbody></table>}
+                {historyRequests.length === 0 ? <p className="leave-empty">Your leave history is empty.</p> : <table className="leave-table"><thead><tr><th>Leave type</th><th>Applied</th><th>Dates</th><th>Days</th><th>Status</th><th>Decision</th><th>Actions</th></tr></thead><tbody>{historyRequests.map((request) => {  return <tr key={`history-${request.id}`}><td>{request.type_name || request.leave_type_name || leaveTypeName(request)}</td><td>{request.applied_at ? new Date(request.applied_at).toLocaleDateString() : '-'}</td><td>{formatDate(request.start_date)} - {formatDate(request.end_date)}</td><td>{request.days_requested}</td><td><span className={workflowStatusClass(request)}>{workflowLabel(request)}</span></td><td>{request.decision_comment || (request.decided_at ? new Date(request.decided_at).toLocaleDateString() : 'Pending')}</td><td></td></tr>; })}</tbody></table>}
               </div>
             </section>
 
@@ -1793,8 +1756,8 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
               <label className="checkbox-row"><input type="checkbox" checked={emailNotifications} onChange={(event) => { setEmailNotifications(event.target.checked); window.sessionStorage.setItem('okoa_email_notifications', String(event.target.checked)); }} /> Receive leave and handover notifications</label>
             </section>
 
-            <section className="leave-section" id="delegations"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover report</h2><p className="leave-muted">Leave handovers assigned to you by colleagues.</p></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <div className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)} · {request.days_requested} days</strong><p>{request.handover_statement ? `Current status: ${request.handover_statement}` : 'Briefing: pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View Request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(request)}>Chat requester</button></div></div>{request.handover_statement && !request.handover_statement.startsWith('DECLINED:') ? <><p className="leave-muted">This handover has been actioned.</p><HandoverReportForm requestId={request.id} readOnly /></> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</div>)}</section>
-            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView} onChat={openRequestChat} onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
+            <section className="leave-section" id="delegations"><div className="leave-section-heading"><div><p className="leave-kicker">HANDOVER</p><h2>Handover report</h2><p className="leave-muted">Leave handovers assigned to you by colleagues.</p></div></div>{delegations.length === 0 ? <p className="leave-empty">No handover reports have been assigned to you.</p> : delegations.map((request) => <div className="profile-summary delegate-card" key={request.id}><div><strong>{request.requester_name || 'Employee'} · {leaveTypeName(request)} · {formatDate(request.start_date)} - {formatDate(request.end_date)} · {request.days_requested} days</strong><p>{request.handover_statement ? `Current status: ${request.handover_statement}` : 'Briefing: pending your confirmation.'}</p><div className="delegate-card-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'request')}>View Request</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(request, 'report')}>View report</button></div></div>{request.handover_statement && !request.handover_statement.startsWith('DECLINED:') ? <><p className="leave-muted">This handover has been actioned.</p><HandoverReportForm requestId={request.id} readOnly /></> : <HandoverAcceptance requestId={request.id} onComplete={loadData} />}</div>)}</section>
+            {canApprove && <section className="leave-section" id="approvals"><div className="leave-section-heading"><div><p className="leave-kicker">TEAM WORKFLOW</p><h2>Leave approvals</h2><p className="leave-muted">Review submitted requests and complete the next permitted action.</p></div></div><div className="approval-card-list">{pendingRequests.length === 0 ? <p className="leave-empty">No submitted leave requests are currently assigned to this approval queue.</p> : pendingRequests.map((request) => { const gate = request.handover_gate || {}; const handoverReady = !gate.required || (gate.assigned && gate.accepted && (!gate.report_required || gate.report_submitted)); return <ApprovalRequestCard key={`card-${request.id}`} request={request} leaveType={request.type_name} formatDate={formatDate} workflowLabel={workflowLabel} workflowStatusClass={workflowStatusClass} handoverReady={handoverReady} canVerify={(isHr || isSuperAdmin) && request.workflow_state === 'hr_verification'} waitingForDelegate={false} waitingForManager={false} onView={openRequestView}  onDecide={decideRequest} onChase={chaseDelegate} onVerify={verifyRequest} />; })}</div></section>}
 
             {isSuperAdmin && (
               <>
@@ -1866,13 +1829,12 @@ const LeaveDashboard = ({ page = 'dashboard', currentUser, onUserUpdated, handle
         )))}
       </main>
 
-      {requestView && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide request-view-modal" role="dialog" aria-modal="true" aria-labelledby="request-view-title"><div className="leave-modal-heading"><div><p className="leave-kicker">LEAVE REQUEST #{requestView.request.id}</p><h2 id="request-view-title">{requestView.view === 'handover' ? 'Handover details' : requestView.view === 'report' ? 'Handover report' : requestView.view === 'more' ? 'Request actions' : 'Request details'}</h2></div><button className="leave-close" type="button" onClick={() => setRequestView(null)} aria-label="Close">×</button></div>{requestView.view === 'report' || requestView.view === 'handover' ? <><div className="request-summary-strip"><strong>{requestView.request.requester_name || currentUser.name}</strong><span>{requestView.request.department_name || 'Unassigned'} · {leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span></div><HandoverReportForm requestId={requestView.request.id} readOnly /></> : requestView.view === 'more' ? <div className="request-action-menu"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'report')}>View Report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'delegate')}>View Delegate</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'history')}>View History</button><a className="leave-secondary-button" href={`/api/leave/requests/${requestView.request.id}/handover/pdf`} target="_blank" rel="noreferrer">View PDF</a><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button></div> : requestView.view === 'delegate' ? <div className="request-detail-grid"><strong>Delegate</strong><span>{requestView.request.handover_name || chatUsers.find((peer) => peer.id === requestView.request.handover_user_id)?.name || 'Not assigned'}</span><strong>Acceptance</strong><span>{requestView.request.handover_agreed_at ? new Date(requestView.request.handover_agreed_at).toLocaleString() : 'Pending'}</span></div> : requestView.view === 'history' ? <div className="request-detail-grid"><strong>Submitted</strong><span>{requestView.request.applied_at ? new Date(requestView.request.applied_at).toLocaleString() : '-'}</span><strong>Workflow</strong><span>{workflowLabel(requestView.request)}</span><strong>Supervisor</strong><span>{requestView.request.supervisor_name || 'Pending'}</span><strong>Decision</strong><span>{requestView.request.supervisor_decision || 'Pending'}</span><strong>HR verification</strong><span>{requestView.request.hr_verification_date ? new Date(requestView.request.hr_verification_date).toLocaleString() : 'Pending'}</span></div> : <div className="request-detail-grid"><strong>Employee</strong><span>{requestView.request.requester_name || currentUser.name}</span><strong>Department</strong><span>{requestView.request.department_name || 'Unassigned'}</span><strong>Leave type</strong><span>{leaveTypeName(requestView.request)}</span><strong>Dates</strong><span>{formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span><strong>Days</strong><span>{requestView.request.days_requested}</span><strong>Reason</strong><span>{requestView.request.reason || '-'}</span><strong>Status</strong><span>{workflowLabel(requestView.request)}</span><strong>Decision comment</strong><span>{requestView.request.decision_comment || 'No feedback recorded.'}</span></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => openRequestChat(requestView.request)}>View Chat</button><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close</button></div></div></div>}
+      {requestView && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide request-view-modal" role="dialog" aria-modal="true" aria-labelledby="request-view-title"><div className="leave-modal-heading"><div><p className="leave-kicker">LEAVE REQUEST #{requestView.request.id}</p><h2 id="request-view-title">{requestView.view === 'handover' ? 'Handover details' : requestView.view === 'report' ? 'Handover report' : requestView.view === 'more' ? 'Request actions' : 'Request details'}</h2></div><button className="leave-close" type="button" onClick={() => setRequestView(null)} aria-label="Close">×</button></div>{requestView.view === 'report' || requestView.view === 'handover' ? <><div className="request-summary-strip"><strong>{requestView.request.requester_name || currentUser.name}</strong><span>{requestView.request.department_name || 'Unassigned'} · {leaveTypeName(requestView.request)} · {formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span></div><HandoverReportForm requestId={requestView.request.id} readOnly /></> : requestView.view === 'more' ? <div className="request-action-menu"><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'report')}>View Report</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'delegate')}>View Delegate</button><button type="button" className="leave-secondary-button" onClick={() => openRequestView(requestView.request, 'history')}>View History</button><a className="leave-secondary-button" href={`/api/leave/requests/${requestView.request.id}/handover/pdf`} target="_blank" rel="noreferrer">View PDF</a></div> : requestView.view === 'delegate' ? <div className="request-detail-grid"><strong>Delegate</strong><span>{requestView.request.handover_name || handoverUsers.find((peer) => peer.id === requestView.request.handover_user_id)?.name || 'Not assigned'}</span><strong>Acceptance</strong><span>{requestView.request.handover_agreed_at ? new Date(requestView.request.handover_agreed_at).toLocaleString() : 'Pending'}</span></div> : requestView.view === 'history' ? <div className="request-detail-grid"><strong>Submitted</strong><span>{requestView.request.applied_at ? new Date(requestView.request.applied_at).toLocaleString() : '-'}</span><strong>Workflow</strong><span>{workflowLabel(requestView.request)}</span><strong>Supervisor</strong><span>{requestView.request.supervisor_name || 'Pending'}</span><strong>Decision</strong><span>{requestView.request.supervisor_decision || 'Pending'}</span><strong>HR verification</strong><span>{requestView.request.hr_verification_date ? new Date(requestView.request.hr_verification_date).toLocaleString() : 'Pending'}</span></div> : <div className="request-detail-grid"><strong>Employee</strong><span>{requestView.request.requester_name || currentUser.name}</span><strong>Department</strong><span>{requestView.request.department_name || 'Unassigned'}</span><strong>Leave type</strong><span>{leaveTypeName(requestView.request)}</span><strong>Dates</strong><span>{formatDate(requestView.request.start_date)} - {formatDate(requestView.request.end_date)}</span><strong>Days</strong><span>{requestView.request.days_requested}</span><strong>Reason</strong><span>{requestView.request.reason || '-'}</span><strong>Status</strong><span>{workflowLabel(requestView.request)}</span><strong>Decision comment</strong><span>{requestView.request.decision_comment || 'No feedback recorded.'}</span></div>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setRequestView(null)}>Close</button></div></div></div>}
 
-      {showRequestForm && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} colleagues={chatUsers} onClose={() => setShowRequestForm(false)} onSubmitted={async () => { setShowRequestForm(false); setMessage({ type: 'success', text: 'Leave request submitted.' }); await loadData(); }} />}
+      {showRequestForm && <LeaveApplicationWizard currentUser={currentUser} leaveTypes={overview.types} colleagues={handoverUsers} onClose={() => setShowRequestForm(false)} onSubmitted={async () => { setShowRequestForm(false); setMessage({ type: 'success', text: 'Leave request submitted.' }); await loadData(); }} />}
 
-      {showLegacyRequestForm && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide" role="dialog" aria-modal="true" aria-labelledby="request-leave-title"><div className="leave-modal-heading"><div><p className="leave-kicker">NEW REQUEST</p><h2 id="request-leave-title">Request leave</h2></div><button className="leave-close" onClick={() => setShowLegacyRequestForm(false)} aria-label="Close">×</button></div><form onSubmit={submitRequest}><label>Leave type<select name="leave_type_id" value={form.leave_type_id} onChange={updateForm} required><option value="">Select leave type</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><div className="leave-form-row"><label>First day<input type="date" name="start_date" value={form.start_date} onChange={updateForm} required /></label><label>Last day<input type="date" name="end_date" value={form.end_date} onChange={updateForm} required /></label><div className="days-preview"><span>Working days</span><strong>{workingDays()}</strong></div></div><label>Reason<textarea name="reason" value={form.reason} onChange={updateForm} rows="3" placeholder="Add a short reason for your request" required /></label><fieldset className="leave-fieldset"><legend>How we can reach you while away</legend><div className="leave-form-row"><label>Contact phone<input name="contact_phone" value={form.contact_phone} onChange={updateForm} required /></label><label>Contact email<input type="email" name="contact_email" value={form.contact_email} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Address<input name="address_line1" value={form.address_line1} onChange={updateForm} required /></label><label>City<input name="city" value={form.city} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Country<input name="country" value={form.country} onChange={updateForm} required /></label><label>Postal code<input name="postal_code" value={form.postal_code} onChange={updateForm} /></label></div></fieldset>{workingDays() > 2 && <fieldset className="leave-fieldset"><legend>Handover</legend><label>Colleague responsible<select name="handover_user_id" value={form.handover_user_id} onChange={updateForm} required><option value="">Select a colleague</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{workingDays() > 3 && <label>Full handover report<textarea name="handover_report" value={form.handover_report} onChange={updateForm} rows="4" required placeholder="List work, deadlines, contacts, and risks." /></label>}<p className="leave-helper">The assigned colleague must acknowledge responsibility before the request can be fully handed over.</p></fieldset>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setShowLegacyRequestForm(false)}>Back</button><button type="submit" className="leave-primary-button" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit request'}</button></div></form></div></div>}
+      {showLegacyRequestForm && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide" role="dialog" aria-modal="true" aria-labelledby="request-leave-title"><div className="leave-modal-heading"><div><p className="leave-kicker">NEW REQUEST</p><h2 id="request-leave-title">Request leave</h2></div><button className="leave-close" onClick={() => setShowLegacyRequestForm(false)} aria-label="Close">×</button></div><form onSubmit={submitRequest}><label>Leave type<select name="leave_type_id" value={form.leave_type_id} onChange={updateForm} required><option value="">Select leave type</option>{overview.types.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><div className="leave-form-row"><label>First day<input type="date" name="start_date" value={form.start_date} onChange={updateForm} required /></label><label>Last day<input type="date" name="end_date" value={form.end_date} onChange={updateForm} required /></label><div className="days-preview"><span>Working days</span><strong>{workingDays()}</strong></div></div><label>Reason<textarea name="reason" value={form.reason} onChange={updateForm} rows="3" placeholder="Add a short reason for your request" required /></label><fieldset className="leave-fieldset"><legend>How we can reach you while away</legend><div className="leave-form-row"><label>Contact phone<input name="contact_phone" value={form.contact_phone} onChange={updateForm} required /></label><label>Contact email<input type="email" name="contact_email" value={form.contact_email} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Address<input name="address_line1" value={form.address_line1} onChange={updateForm} required /></label><label>City<input name="city" value={form.city} onChange={updateForm} required /></label></div><div className="leave-form-row"><label>Country<input name="country" value={form.country} onChange={updateForm} required /></label><label>Postal code<input name="postal_code" value={form.postal_code} onChange={updateForm} /></label></div></fieldset>{workingDays() > 2 && <fieldset className="leave-fieldset"><legend>Handover</legend><label>Colleague responsible<select name="handover_user_id" value={form.handover_user_id} onChange={updateForm} required><option value="">Select a colleague</option>{handoverUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{workingDays() > 3 && <label>Full handover report<textarea name="handover_report" value={form.handover_report} onChange={updateForm} rows="4" required placeholder="List work, deadlines, contacts, and risks." /></label>}<p className="leave-helper">The assigned colleague must acknowledge responsibility before the request can be fully handed over.</p></fieldset>}<div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setShowLegacyRequestForm(false)}>Back</button><button type="submit" className="leave-primary-button" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit request'}</button></div></form></div></div>}
       {showProfile && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal leave-modal-wide" role="dialog" aria-modal="true" aria-labelledby="profile-title"><div className="leave-modal-heading"><div><p className="leave-kicker">YOUR DETAILS</p><h2 id="profile-title">Edit profile</h2></div><button className="leave-close" onClick={() => setShowProfile(false)} aria-label="Close">×</button></div><form onSubmit={saveProfile}><label>Profile photo<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={changeProfilePhoto} /><span className="leave-helper">JPG, PNG, GIF, or WEBP up to 5 MB.</span></label>{profilePhoto && <button type="button" className="leave-text-button" onClick={removeProfilePhoto}>Remove photo</button>}<div className="leave-form-row">{[['employee_name','Employee name'],['job_position_title','Job position title']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><div className="leave-form-row">{[['employer','Employer'],['department','Department']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} required /></label>)}</div><fieldset className="leave-fieldset"><legend>Contact and address</legend><div className="leave-form-row">{[['contact_phone','Phone'],['contact_email','Email']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div><div className="leave-form-row">{[['address_line1','Address'],['address_line2','Address line 2'],['city','City'],['country','Country'],['postal_code','Postal code']].map(([name,label]) => <label key={name}>{label}<input name={name} value={profileForm[name] || ''} onChange={(event) => setProfileForm({ ...profileForm, [name]: event.target.value })} /></label>)}</div></fieldset><div className="leave-modal-actions"><button type="button" className="leave-secondary-button" onClick={() => setShowProfile(false)}>Back</button><button type="submit" className="leave-primary-button">Save profile</button></div></form></div></div>}
-      {showChat && <div className="leave-modal-backdrop" role="presentation"><div className="leave-modal chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title"><div className="leave-modal-heading"><div><p className="leave-kicker">TEAM CHAT</p><h2 id="chat-title">Messages</h2></div><button className="leave-close" type="button" onClick={() => { setShowChat(false); setChatTarget(null); }} aria-label="Close">×</button></div>{chatTarget?.role === 'manager' && <p className="leave-muted">Choose a manager for {chatTarget.department || 'your department'}.</p>}<label>{chatTarget?.role === 'manager' ? 'Manager' : 'Chat with'}<select value={chatPeer} onChange={(event) => setChatPeer(event.target.value)}><option value="">{chatTarget?.role === 'manager' ? 'Select a manager' : 'Select a colleague'}</option>{chatUsers.map((peer) => <option value={peer.id} key={peer.id}>{peer.name}</option>)}</select></label>{chatError && <div className="leave-alert error chat-error" role="alert">{chatError}<button type="button" className="leave-text-button" onClick={loadChat}>Try again</button></div>}<div className="chat-messages" aria-live="polite">{chatLoading ? <p className="leave-empty">Loading messages...</p> : chatMessages.length === 0 ? <p className="leave-empty">No messages yet. Start the conversation below.</p> : chatMessages.map((item) => <div className={`chat-message ${item.sender_id === currentUser.id ? 'mine' : ''}`} key={item.id}><span>{item.sender_name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>{item.body}</p></div>)}</div><form className="chat-compose" onSubmit={submitChat}><input value={chatBody} onChange={(event) => setChatBody(event.target.value)} placeholder="Write a message" maxLength="2000" disabled={!chatPeer || chatLoading} /><button className="leave-primary-button" type="submit" disabled={!chatPeer || !chatBody.trim() || chatLoading}>Send</button></form></div></div>}
       {decisionDialog?.request && (
         <div className="leave-modal-backdrop decision-backdrop" role="presentation">
           <div className={`leave-modal decision-modal decision-${decisionDialog.decision}`} role="dialog" aria-modal="true" aria-labelledby="decision-title">

@@ -31,6 +31,7 @@ const request = async (path, options = {}) => {
 
 export const organizationApi = {
   getDepartments: () => request('/api/organization/departments'),
+  getMyDepartmentPages: () => request('/api/organization/department-pages/me'),
   getDepartmentPageConfigurations: () => request('/api/admin/department-pages'),
   getTransferCandidates: () => request('/api/organization/transfer-candidates'),
   getMyAssignment: () => request('/api/organization/assignment/me'),

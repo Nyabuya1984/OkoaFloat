@@ -26,6 +26,7 @@ from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db, limiter
+from app.services.otp_email import send_otp_email
 from app.models import (
     AuditLog,
     AuthSession,
@@ -56,6 +57,7 @@ from app.utils.organization import (
 
 auth_bp = Blueprint("auth", __name__)
 _revoked_refresh_tokens = set()
+_revoked_admin_access_tokens = set()
 OTP_RESEND_DELAY_SECONDS = 5
 ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
@@ -181,6 +183,7 @@ def _create_otp(user, purpose):
         )
 
     sms_sent = False
+    email_sent = False
     if not current_app.testing and current_app.config.get("SMS_ENABLED", True):
         try:
             sms_sent, sms_error = send_otp_sms(user.phone_number, code, purpose)
@@ -196,7 +199,22 @@ def _create_otp(user, purpose):
                 "Unexpected error attempting SMS delivery for %s", user.phone_number
             )
 
-    return challenge, sms_sent
+    if not current_app.testing:
+        try:
+            email_sent, email_error = send_otp_email(user.email, code, purpose)
+            if not email_sent and email_error != "SMTP credentials or sender are not configured":
+                current_app.logger.warning(
+                    "OTP email delivery failed for %s (purpose=%s): %s",
+                    user.email,
+                    purpose,
+                    email_error,
+                )
+        except Exception:
+            current_app.logger.exception(
+                "Unexpected error attempting OTP email delivery for %s", user.email
+            )
+
+    return challenge, sms_sent, email_sent
 
 
 def _verify_otp(phone_number, code, purpose, email=None):
@@ -303,25 +321,36 @@ def _mask_phone(phone_number):
     return f"...{last4}"
 
 
-def _otp_generated_message(action="verification", sms_sent=False, phone_number=None):
+def _otp_generated_message(
+    action="verification", sms_sent=False, email_sent=False, phone_number=None
+):
     if not _is_testing_context():
+        if sms_sent and email_sent:
+            return (
+                f"The SMS and email providers accepted your 6-digit {action} code request. "
+                "Delivery is not confirmed."
+            )
+        if email_sent:
+            return (
+                f"The email provider accepted your 6-digit {action} code request. "
+                "Delivery is not confirmed."
+            )
         if phone_number and sms_sent:
-            return f"A 6-digit {action} code has been sent to your phone number ending in {_mask_phone(phone_number)}"
+            return (
+                f"The SMS provider accepted your 6-digit {action} code request for the phone number ending in "
+                f"{_mask_phone(phone_number)}. Delivery to your phone is not confirmed."
+            )
         if sms_sent:
-            return f"A 6-digit {action} code has been sent to your phone number."
-        return f"We couldn't send a {action} code by SMS. Please try again or contact support."
+            return f"The SMS provider accepted your 6-digit {action} code request. Delivery to your phone is not confirmed."
+        return f"We couldn't send a {action} code by SMS or email. Please try again or contact support."
     return (
         f"A {action} code was generated and saved to the database and development console."
     )
 
 
-def _password_reset_message(sms_sent=False, phone_number=None):
+def _password_reset_message():
     if not _is_testing_context():
-        if phone_number and sms_sent:
-            return f"A 6-digit verification code has been sent to your phone number ending in {_mask_phone(phone_number)}"
-        if sms_sent:
-            return "If the account is eligible, a verification code was sent to your phone number."
-        return "We couldn't send a password reset code by SMS. Please try again or contact support."
+        return "If the account is eligible, a verification code request has been processed."
     return "If the account is eligible, a verification code was generated and saved to the database and development console."
 
 
@@ -472,7 +501,7 @@ def _phone_login(payload):
         }), 403
     sms_sent = False
     try:
-        challenge, sms_sent = _create_otp(user, "login")
+        challenge, sms_sent, email_sent = _create_otp(user, "login")
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -484,7 +513,12 @@ def _phone_login(payload):
         )
     return jsonify({
         "verification_required": True,
-        "message": _otp_generated_message("verification", sms_sent=sms_sent, phone_number=user.phone_number),
+        "sms_sent": sms_sent,
+        "email_sent": email_sent,
+        "message": _otp_generated_message(
+            "verification", sms_sent=sms_sent, email_sent=email_sent,
+            phone_number=user.phone_number,
+        ),
     })
 
 
@@ -585,7 +619,7 @@ def register():
         update_assignment_role(
             user, None, organizational_role="field_agent"
         )
-        challenge, sms_sent = _create_otp(user, "registration")
+        challenge, sms_sent, email_sent = _create_otp(user, "registration")
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -597,7 +631,12 @@ def register():
         )
     return jsonify({
         "verification_required": True,
-        "message": _otp_generated_message("verification", sms_sent=sms_sent, phone_number=user.phone_number),
+        "sms_sent": sms_sent,
+        "email_sent": email_sent,
+        "message": _otp_generated_message(
+            "verification", sms_sent=sms_sent, email_sent=email_sent,
+            phone_number=user.phone_number,
+        ),
     }), 201
 
 
@@ -613,13 +652,19 @@ def verify_registration():
         if error:
             db.session.commit()
             return _error(error, "UNAUTHORIZED", 401)
+        user = db.session.get(User, challenge.user_id)
         db.session.commit()
     except Exception:
         db.session.rollback()
         return _error("Unable to verify registration", "SERVER_ERROR", 500)
+    account_status = user.account_status if user else "pending"
     return jsonify({
-        "account_status": "pending",
-        "message": "Registration verified. Your account is pending approval.",
+        "account_status": account_status,
+        "message": (
+            "Registration verified. Your account is pending approval."
+            if account_status == "pending"
+            else "Registration verified. You can now sign in."
+        ),
     })
 
 
@@ -1233,6 +1278,71 @@ def admin_users():
     })
 
 
+@auth_bp.post("/admin/users/<int:user_id>/access")
+@jwt_required()
+def start_admin_user_access(user_id):
+    actor = db.session.get(User, int(get_jwt_identity()))
+    if (
+        actor is None
+        or not actor.is_currently_active()
+        or actor.account_status != "approved"
+        or not is_super_admin(actor)
+    ):
+        return _error("Only an active super administrator can access user accounts", "FORBIDDEN", 403)
+
+    target = db.session.get(User, user_id)
+    if target is None or not target.is_currently_active() or target.account_status != "approved":
+        return _error("Only active, approved user accounts can be accessed", "NOT_FOUND", 404)
+    if target.id == actor.id:
+        return _error("You are already signed in to this account", "VALIDATION_ERROR", 422)
+
+    _record_security_event(
+        "admin_user_access_started",
+        "A super administrator started a read-only user account session.",
+        {"admin_id": actor.id, "user_id": target.id},
+    )
+    db.session.commit()
+    access_token = create_access_token(
+        identity=str(target.id),
+        additional_claims={
+            **_claims(target),
+            "acting_admin_id": actor.id,
+            "acting_admin_name": actor.full_name,
+        },
+        expires_delta=timedelta(minutes=10),
+    )
+    return jsonify({
+        "data": {
+            "access_token": access_token,
+            "user": _user_response_data(target),
+            "acting_as": {"id": actor.id, "name": actor.full_name},
+        },
+        "error": None,
+    })
+
+
+@auth_bp.post("/admin/users/access/stop")
+@jwt_required()
+def stop_admin_user_access():
+    claims = get_jwt()
+    try:
+        admin_id = int(claims.get("acting_admin_id"))
+    except (TypeError, ValueError):
+        return _error("This session is not accessing another user account", "FORBIDDEN", 403)
+    admin = db.session.get(User, admin_id)
+    if not admin or not is_super_admin(admin):
+        return _error("The initiating super administrator is no longer authorized", "FORBIDDEN", 403)
+
+    _revoked_admin_access_tokens.add(claims.get("jti"))
+    _record_security_event(
+        "admin_user_access_ended",
+        "A super administrator ended a read-only user account session.",
+        {"admin_id": admin.id, "user_id": int(get_jwt_identity())},
+    )
+    db.session.commit()
+    return jsonify({"data": {"success": True}, "error": None})
+
+
 @auth_bp.post("/admin/users")
 @jwt_required()
 def create_admin_user():
@@ -1366,6 +1476,7 @@ def create_admin_user():
         user.manager_id = manager_id
         if payload.get("job_position_title"):
             user.job_position_title = str(payload["job_position_title"]).strip()
+        _, sms_sent, email_sent = _create_otp(user, "registration")
         db.session.commit()
     except ValueError as exc:
         db.session.rollback()
@@ -1383,7 +1494,14 @@ def create_admin_user():
         db.session.rollback()
         current_app.logger.exception("Unable to create user organizational assignment")
         return _error("Unable to create the user and organizational assignment", "SERVER_ERROR", 500)
-    return jsonify({"data": user.to_dict(), "error": None, "message": "User created successfully"})
+    return jsonify({
+        "data": user.to_dict(),
+        "verification_required": True,
+        "sms_sent": sms_sent,
+        "email_sent": email_sent,
+        "error": None,
+        "message": "User created successfully",
+    })
 
 
 @auth_bp.delete("/admin/users/<int:user_id>")
@@ -1813,16 +1931,16 @@ def request_password_reset():
     phone_number = normalize_ke_phone(payload.get("phone_number"))
     if not phone_number:
         return jsonify({
-            "message": _password_reset_message(sms_sent=False, phone_number=phone_number)
+            "message": _password_reset_message()
         })
     user = User.query.filter_by(phone_number=phone_number).first()
     if not user or not user.is_currently_active() or user.account_status in ("banned", "deactivated"):
         return jsonify({
-            "message": _password_reset_message(sms_sent=False, phone_number=phone_number)
+                "message": _password_reset_message()
         })
     sms_sent = False
     try:
-        challenge, sms_sent = _create_otp(user, "reset")
+        challenge, sms_sent, email_sent = _create_otp(user, "reset")
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -1833,7 +1951,7 @@ def request_password_reset():
             502,
         )
     return jsonify({
-        "message": _password_reset_message(sms_sent=sms_sent, phone_number=phone_number)
+        "message": _password_reset_message()
     })
 
 
@@ -1882,7 +2000,7 @@ def request_phone_recovery():
         )
     sms_sent = False
     try:
-        challenge, sms_sent = _create_otp(user, "account_recovery")
+        challenge, sms_sent, email_sent = _create_otp(user, "account_recovery")
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -1894,7 +2012,11 @@ def request_phone_recovery():
         )
     return jsonify({
         "verification_required": True,
-        "message": _otp_generated_message("recovery", sms_sent=sms_sent),
+        "sms_sent": sms_sent,
+        "email_sent": email_sent,
+        "message": _otp_generated_message(
+            "recovery", sms_sent=sms_sent, email_sent=email_sent
+        ),
     })
 
 
@@ -2040,7 +2162,14 @@ def current_user():
     user = db.session.get(User, int(get_jwt_identity()))
     if not user:
         return _error("User not found", "NOT_FOUND", 404)
-    response = jsonify({"user": _user_response_data(user)})
+    user_data = _user_response_data(user)
+    claims = get_jwt()
+    if claims.get("acting_admin_id") is not None:
+        user_data["acting_as"] = {
+            "id": claims["acting_admin_id"],
+            "name": claims.get("acting_admin_name", "Super Administrator"),
+        }
+    response = jsonify({"user": user_data})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Vary"] = "Authorization"

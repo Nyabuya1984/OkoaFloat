@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OkoaFloat Backend API",
-    "description": "Import this collection, set baseUrl and credentials, then run Login followed by Verify Login OTP. Enter each OTP in the otp collection variable. Successful verification stores accessToken and refreshToken. Routes are grouped by domain (Authentication, Leave, Chat, Administration, Sales, Customer Care, Debt Collection, Organization, Reports, System). Deprecated compatibility routes are grouped under 'Compatibility (Deprecated)'.",
+    "description": "Import this collection, set baseUrl and credentials, then run Login followed by Verify Login OTP. Enter each OTP in the otp collection variable. Successful verification stores accessToken and refreshToken. Routes are grouped by domain (Authentication, Leave, Administration, Sales, Customer Care, Debt Collection, Organization, Reports, System). Deprecated compatibility routes are grouped under 'Compatibility (Deprecated)'.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -92,6 +92,7 @@
             {"name": "Pending Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/pending"}},
             {"name": "Team Calendar", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/team-calendar"}},
             {"name": "Delegations", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/delegations"}},
+            {"name": "Handover Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/handover-users"}},
             {"name": "Get Leave Request", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}"}},
             {"name": "Create Leave Request", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"leave_type_id\": {{leaveTypeId}},\n  \"start_date\": \"2026-10-12\",\n  \"end_date\": \"2026-10-13\",\n  \"reason\": \"Personal leave\",\n  \"contact_phone\": \"+254712345678\",\n  \"contact_email\": \"amina@example.com\",\n  \"address_line1\": \"12 Kenyatta Avenue\",\n  \"city\": \"Nairobi\",\n  \"country\": \"Kenya\",\n  \"postal_code\": \"00100\"\n}"}, "url": "{{baseUrl}}/api/leave/requests"}},
             {"name": "Cancel Leave Request", "request": {"method": "POST", "url": "{{baseUrl}}/api/leave/requests/{{requestId}}/cancel"}},
@@ -124,16 +125,6 @@
             {"name": "Get Leave Requests", "request": {"method": "GET", "url": "{{baseUrl}}/api/leave/admin/requests"}}
           ]
         }
-      ]
-    },
-    {
-      "name": "Chat",
-      "item": [
-        {"name": "Chat Users", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/users"}},
-        {"name": "Messages With Peer", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}"}},
-        {"name": "Unread Count", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/unread-count"}},
-        {"name": "Send Message", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"recipient_id\": {{peerId}},\n  \"body\": \"Hello\"\n}"}, "url": "{{baseUrl}}/api/chat/messages"}},
-        {"name": "Mark Messages Read", "request": {"method": "POST", "url": "{{baseUrl}}/api/chat/messages/{{peerId}}/read"}}
       ]
     },
     {
